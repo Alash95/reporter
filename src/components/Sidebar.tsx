@@ -7,7 +7,10 @@ import {
   Settings, 
   PieChart,
   Brain,
-  Activity
+  Activity,
+  Upload,
+  Layout,
+  MessageSquare
 } from 'lucide-react';
 
 const Sidebar: React.FC = () => {
@@ -15,7 +18,10 @@ const Sidebar: React.FC = () => {
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: BarChart3 },
+    { name: 'File Upload', href: '/dashboard/files', icon: Upload },
+    { name: 'Conversational AI', href: '/dashboard/conversational-ai', icon: MessageSquare },
     { name: 'Query Builder', href: '/dashboard/query-builder', icon: Database },
+    { name: 'Dashboard Builder', href: '/dashboard/dashboard-builder', icon: Layout },
     { name: 'AI Assistant', href: '/dashboard/ai-assistant', icon: Brain },
     { name: 'Semantic Models', href: '/dashboard/models', icon: Sparkles },
     { name: 'Analytics', href: '/dashboard/analytics', icon: Activity },

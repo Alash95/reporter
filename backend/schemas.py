@@ -29,6 +29,90 @@ class Token(BaseModel):
     token_type: str
     user: User
 
+# File schemas
+class FileUploadResponse(BaseModel):
+    file_id: str
+    filename: str
+    status: str
+    message: str
+
+class FileListResponse(BaseModel):
+    id: str
+    filename: str
+    file_type: str
+    file_size: int
+    processing_status: str
+    created_at: datetime
+    has_semantic_model: bool
+
+class FileProcessingStatus(BaseModel):
+    file_id: str
+    status: str
+    extracted_data: Optional[Dict[str, Any]] = None
+    semantic_model_id: Optional[str] = None
+
+# Dashboard schemas
+class DashboardCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    layout: Optional[Dict[str, Any]] = None
+    widgets: Optional[List[Dict[str, Any]]] = None
+    is_public: bool = False
+
+class DashboardResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str]
+    layout: Dict[str, Any]
+    widgets: List[Dict[str, Any]]
+    is_public: bool
+    user_id: str
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# Widget schemas
+class WidgetCreate(BaseModel):
+    name: str
+    widget_type: str
+    configuration: Dict[str, Any]
+    data_source: Dict[str, Any]
+    position: Dict[str, Any]
+
+class WidgetResponse(BaseModel):
+    id: str
+    name: str
+    widget_type: str
+    configuration: Dict[str, Any]
+    data_source: Dict[str, Any]
+    position: Dict[str, Any]
+    dashboard_id: str
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# Insight schemas
+class InsightGenerate(BaseModel):
+    data_source_type: str  # "file" or "query"
+    data_source_id: str
+
+class InsightResponse(BaseModel):
+    id: str
+    title: str
+    content: str
+    insight_type: str
+    data_source: Dict[str, Any]
+    confidence_score: float
+    is_automated: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
 # Semantic Model schemas
 class SemanticModelBase(BaseModel):
     name: str
@@ -77,6 +161,8 @@ class Query(QueryBase):
     row_count: Optional[int]
     status: str
     error_message: Optional[str]
+    natural_language_query: Optional[str]
+    ai_generated: bool
     created_at: datetime
     
     class Config:
@@ -86,9 +172,32 @@ class Query(QueryBase):
 class AIQueryRequest(BaseModel):
     prompt: str
     model_id: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
 
 class AIQueryResponse(BaseModel):
     sql: str
     explanation: str
     confidence: float
     template_used: Optional[str] = None
+    suggested_charts: Optional[List[Dict[str, Any]]] = None
+
+# Conversation schemas
+class ConversationMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+    timestamp: datetime
+    metadata: Optional[Dict[str, Any]] = None
+
+class ConversationCreate(BaseModel):
+    message: str
+    context: Optional[Dict[str, Any]] = None
+
+class ConversationResponse(BaseModel):
+    id: str
+    messages: List[ConversationMessage]
+    context: Dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True

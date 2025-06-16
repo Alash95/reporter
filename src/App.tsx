@@ -10,6 +10,9 @@ import QueryBuilder from './components/QueryBuilder';
 import SemanticModels from './components/SemanticModels';
 import AIAssistant from './components/AIAssistant';
 import Analytics from './components/Analytics';
+import FileUpload from './components/FileUpload';
+import DashboardBuilder from './components/DashboardBuilder';
+import ConversationalAI from './components/ConversationalAI';
 import ProtectedRoute from './components/ProtectedRoute';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -37,6 +40,9 @@ function App() {
                           <Route path="/models" element={<SemanticModels />} />
                           <Route path="/ai-assistant" element={<AIAssistant />} />
                           <Route path="/analytics" element={<Analytics />} />
+                          <Route path="/files" element={<FileUpload />} />
+                          <Route path="/dashboard-builder" element={<DashboardBuilder />} />
+                          <Route path="/conversational-ai" element={<ConversationalAI />} />
                         </Routes>
                       </main>
                     </div>
