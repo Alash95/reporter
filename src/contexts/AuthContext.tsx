@@ -46,53 +46,69 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, password: string) => {
-    const response = await fetch('http://localhost:8000/api/auth/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ email, password }),
-    });
+    try {
+      const response = await fetch('http://localhost:8000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || 'Login failed');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Login failed');
+      }
+
+      const data = await response.json();
+      
+      setToken(data.access_token);
+      setUser(data.user);
+      
+      localStorage.setItem('auth_token', data.access_token);
+      localStorage.setItem('auth_user', JSON.stringify(data.user));
+    } catch (error) {
+      // If backend is not available, show a helpful error
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error('Backend server is not running. Please start the Python backend on port 8000.');
+      }
+      throw error;
     }
-
-    const data = await response.json();
-    
-    setToken(data.access_token);
-    setUser(data.user);
-    
-    localStorage.setItem('auth_token', data.access_token);
-    localStorage.setItem('auth_user', JSON.stringify(data.user));
   };
 
   const signup = async (email: string, password: string, fullName?: string) => {
-    const response = await fetch('http://localhost:8000/api/auth/signup', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ 
-        email, 
-        password, 
-        full_name: fullName 
-      }),
-    });
+    try {
+      const response = await fetch('http://localhost:8000/api/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          email, 
+          password, 
+          full_name: fullName 
+        }),
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || 'Signup failed');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Signup failed');
+      }
+
+      const data = await response.json();
+      
+      setToken(data.access_token);
+      setUser(data.user);
+      
+      localStorage.setItem('auth_token', data.access_token);
+      localStorage.setItem('auth_user', JSON.stringify(data.user));
+    } catch (error) {
+      // If backend is not available, show a helpful error
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error('Backend server is not running. Please start the Python backend on port 8000.');
+      }
+      throw error;
     }
-
-    const data = await response.json();
-    
-    setToken(data.access_token);
-    setUser(data.user);
-    
-    localStorage.setItem('auth_token', data.access_token);
-    localStorage.setItem('auth_user', JSON.stringify(data.user));
   };
 
   const logout = () => {
