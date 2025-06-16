@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 from database import engine, get_db
 from models import Base
-from routers import auth, models, queries, analytics, ai, files, dashboards, insights
+from routers import models, queries, analytics, ai, files, dashboards, insights
 from services.cache import CacheService
 from services.ai_query import AIQueryService
 from services.file_processor import FileProcessorService
@@ -58,8 +58,7 @@ app.add_middleware(
 # Static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Include routers
-app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
+# Include routers (removed auth dependency)
 app.include_router(models.router, prefix="/api/models", tags=["semantic models"])
 app.include_router(queries.router, prefix="/api/queries", tags=["queries"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
@@ -88,7 +87,8 @@ async def health_check():
             "ai_insights", 
             "semantic_modeling",
             "dashboard_builder",
-            "real_time_updates"
+            "real_time_updates",
+            "conversational_ai"
         ]
     }
 

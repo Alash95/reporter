@@ -14,11 +14,23 @@ import {
   Users,
   TrendingUp,
   Code,
-  Brain
+  Brain,
+  Upload,
+  MessageSquare
 } from 'lucide-react';
 
 const LandingPage: React.FC = () => {
   const features = [
+    {
+      icon: Upload,
+      title: "Multi-Format File Upload",
+      description: "Upload CSV, Excel, PDF, DOCX, and TXT files with AI-powered data extraction"
+    },
+    {
+      icon: MessageSquare,
+      title: "Conversational AI Analytics",
+      description: "Ask questions in natural language and get instant insights with auto-generated charts"
+    },
     {
       icon: Brain,
       title: "AI-Powered Query Generation",
@@ -35,19 +47,9 @@ const LandingPage: React.FC = () => {
       description: "Pre-aggregated data and intelligent caching for sub-second query responses"
     },
     {
-      icon: Shield,
-      title: "Enterprise Security",
-      description: "Row-level permissions, JWT authentication, and tenant isolation"
-    },
-    {
-      icon: Globe,
-      title: "Multi-tenant Architecture",
-      description: "Built for SaaS platforms and embedded analytics use cases"
-    },
-    {
-      icon: Code,
-      title: "Developer-First APIs",
-      description: "REST and GraphQL APIs with comprehensive documentation"
+      icon: BarChart3,
+      title: "Drag & Drop Dashboards",
+      description: "Build interactive dashboards with drag-and-drop widgets and real-time data"
     }
   ];
 
@@ -74,7 +76,7 @@ const LandingPage: React.FC = () => {
     {
       name: "Emily Johnson",
       role: "Analytics Lead at GrowthCo",
-      content: "The caching system is phenomenal. Our dashboards load instantly, even with complex queries across millions of rows.",
+      content: "The file upload and AI insights feature is phenomenal. We can analyze any data instantly without complex setup.",
       avatar: "https://images.pexels.com/photos/1239291/pexels-photo-1239291.jpeg?auto=compress&cs=tinysrgb&w=100&h=100&fit=crop"
     }
   ];
@@ -97,13 +99,7 @@ const LandingPage: React.FC = () => {
               <a href="#pricing" className="text-gray-600 hover:text-gray-900 transition-colors">Pricing</a>
               <a href="#docs" className="text-gray-600 hover:text-gray-900 transition-colors">Docs</a>
               <Link 
-                to="/login" 
-                className="text-gray-600 hover:text-gray-900 transition-colors"
-              >
-                Sign In
-              </Link>
-              <Link 
-                to="/signup" 
+                to="/dashboard" 
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Get Started
@@ -119,26 +115,26 @@ const LandingPage: React.FC = () => {
           <div className="text-center">
             <div className="flex items-center justify-center space-x-2 mb-6">
               <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
-                🚀 Now with AI-Powered Queries
+                🚀 Now with AI-Powered File Analysis
               </span>
             </div>
             
             <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-6 leading-tight">
-              The Modern Analytics
-              <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent"> API Platform</span>
+              The Complete Analytics
+              <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent"> AI Platform</span>
             </h1>
             
             <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto leading-relaxed">
-              Build powerful data applications with AI-generated queries, semantic modeling, 
-              and lightning-fast caching. The open-source alternative to Cube.dev.
+              Upload any data file, ask questions in natural language, and get instant insights with AI-generated 
+              charts and dashboards. The open-source alternative to Tableau and Power BI.
             </p>
             
             <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4 mb-12">
               <Link 
-                to="/signup"
+                to="/dashboard"
                 className="bg-blue-600 text-white px-8 py-4 rounded-lg font-semibold hover:bg-blue-700 transition-all duration-200 flex items-center space-x-2 shadow-lg hover:shadow-xl"
               >
-                <span>Start Building</span>
+                <span>Start Analyzing</span>
                 <ArrowRight className="h-5 w-5" />
               </Link>
               
@@ -151,7 +147,7 @@ const LandingPage: React.FC = () => {
             <div className="flex items-center justify-center space-x-6 text-sm text-gray-500">
               <div className="flex items-center space-x-1">
                 <CheckCircle className="h-4 w-4 text-green-500" />
-                <span>Free to start</span>
+                <span>No signup required</span>
               </div>
               <div className="flex items-center space-x-1">
                 <CheckCircle className="h-4 w-4 text-green-500" />
@@ -159,7 +155,7 @@ const LandingPage: React.FC = () => {
               </div>
               <div className="flex items-center space-x-1">
                 <CheckCircle className="h-4 w-4 text-green-500" />
-                <span>No credit card required</span>
+                <span>AI-powered insights</span>
               </div>
             </div>
           </div>
@@ -196,8 +192,8 @@ const LandingPage: React.FC = () => {
               Everything you need for modern analytics
             </h2>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              From AI-powered query generation to enterprise-grade security, 
-              we've got all the tools you need to build amazing data applications.
+              From AI-powered file analysis to drag-and-drop dashboards, 
+              we've got all the tools you need to unlock insights from your data.
             </p>
           </div>
           
@@ -222,106 +218,21 @@ const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* Code Example Section */}
-      <section className="py-24 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <h2 className="text-4xl font-bold text-gray-900 mb-6">
-                From natural language to SQL in seconds
-              </h2>
-              <p className="text-xl text-gray-600 mb-8">
-                Our AI understands your business context and generates optimized queries 
-                that work with your semantic models.
-              </p>
-              
-              <div className="space-y-4">
-                <div className="flex items-start space-x-3">
-                  <div className="h-6 w-6 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-gray-900">Context-Aware</h4>
-                    <p className="text-gray-600">Understands your data model and business logic</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start space-x-3">
-                  <div className="h-6 w-6 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-gray-900">Optimized Queries</h4>
-                    <p className="text-gray-600">Generates efficient SQL with proper indexing hints</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-start space-x-3">
-                  <div className="h-6 w-6 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-gray-900">Multi-Database</h4>
-                    <p className="text-gray-600">Works with PostgreSQL, MySQL, BigQuery, and more</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-gray-900 rounded-2xl p-6 overflow-hidden">
-              <div className="flex items-center space-x-2 mb-4">
-                <div className="h-3 w-3 bg-red-500 rounded-full"></div>
-                <div className="h-3 w-3 bg-yellow-500 rounded-full"></div>
-                <div className="h-3 w-3 bg-green-500 rounded-full"></div>
-                <span className="text-gray-400 text-sm ml-2">AI Query Generator</span>
-              </div>
-              
-              <div className="space-y-4">
-                <div>
-                  <div className="text-green-400 text-sm mb-2">💬 Natural Language Input:</div>
-                  <div className="bg-gray-800 p-3 rounded-lg text-gray-300">
-                    "Show me monthly revenue by region for 2024"
-                  </div>
-                </div>
-                
-                <div>
-                  <div className="text-blue-400 text-sm mb-2">⚡ Generated SQL:</div>
-                  <div className="bg-gray-800 p-3 rounded-lg text-gray-300 font-mono text-sm">
-                    <div className="text-purple-400">SELECT</div>
-                    <div className="ml-4">DATE_TRUNC('month', created_at) <span className="text-blue-400">as</span> period,</div>
-                    <div className="ml-4">region,</div>
-                    <div className="ml-4">SUM(total) <span className="text-blue-400">as</span> revenue</div>
-                    <div className="text-purple-400">FROM</div>
-                    <div className="ml-4">orders</div>
-                    <div className="text-purple-400">WHERE</div>
-                    <div className="ml-4">EXTRACT(year <span className="text-blue-400">FROM</span> created_at) = <span className="text-yellow-400">2024</span></div>
-                    <div className="text-purple-400">GROUP BY</div>
-                    <div className="ml-4">period, region</div>
-                    <div className="text-purple-400">ORDER BY</div>
-                    <div className="ml-4">period, revenue <span className="text-blue-400">DESC</span></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* Testimonials Section */}
-      <section className="py-24 bg-white">
+      <section className="py-24 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">
               Trusted by data teams worldwide
             </h2>
             <p className="text-xl text-gray-600">
-              See what our customers are saying about their experience
+              See what our users are saying about their experience
             </p>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {testimonials.map((testimonial, index) => (
-              <div key={index} className="bg-gray-50 p-8 rounded-2xl">
+              <div key={index} className="bg-white p-8 rounded-2xl shadow-sm">
                 <div className="flex items-center mb-4">
                   {[...Array(5)].map((_, i) => (
                     <Star key={i} className="h-5 w-5 text-yellow-400 fill-current" />
@@ -353,29 +264,20 @@ const LandingPage: React.FC = () => {
       <section className="py-24 bg-gradient-to-r from-blue-600 to-purple-600">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-4xl font-bold text-white mb-6">
-            Ready to transform your analytics?
+            Ready to unlock your data insights?
           </h2>
           <p className="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
-            Join thousands of developers building the future of data applications. 
-            Start your free trial today.
+            Start analyzing your data with AI-powered insights in seconds. 
+            No setup required, no credit card needed.
           </p>
           
-          <div className="flex flex-col sm:flex-row items-center justify-center space-y-4 sm:space-y-0 sm:space-x-4">
-            <Link 
-              to="/signup"
-              className="bg-white text-blue-600 px-8 py-4 rounded-lg font-semibold hover:bg-gray-50 transition-colors flex items-center space-x-2 shadow-lg"
-            >
-              <span>Start Free Trial</span>
-              <ArrowRight className="h-5 w-5" />
-            </Link>
-            
-            <Link 
-              to="/login"
-              className="border-2 border-white text-white px-8 py-4 rounded-lg font-semibold hover:bg-white hover:text-blue-600 transition-colors"
-            >
-              Sign In
-            </Link>
-          </div>
+          <Link 
+            to="/dashboard"
+            className="bg-white text-blue-600 px-8 py-4 rounded-lg font-semibold hover:bg-gray-50 transition-colors inline-flex items-center space-x-2 shadow-lg"
+          >
+            <span>Start Analyzing Now</span>
+            <ArrowRight className="h-5 w-5" />
+          </Link>
         </div>
       </section>
 
@@ -391,19 +293,8 @@ const LandingPage: React.FC = () => {
                 <span className="text-xl font-bold">Analytics Platform</span>
               </div>
               <p className="text-gray-400 mb-4">
-                The modern analytics API platform for building data applications.
+                The complete AI-powered analytics platform for modern data teams.
               </p>
-              <div className="flex space-x-4">
-                <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                  <Users className="h-5 w-5" />
-                </a>
-                <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                  <Code className="h-5 w-5" />
-                </a>
-                <a href="#" className="text-gray-400 hover:text-white transition-colors">
-                  <TrendingUp className="h-5 w-5" />
-                </a>
-              </div>
             </div>
             
             <div>

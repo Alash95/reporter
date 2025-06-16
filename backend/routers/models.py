@@ -3,9 +3,8 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from database import get_db
-from models import SemanticModel, User
+from models import SemanticModel
 from schemas import SemanticModel as SemanticModelSchema, SemanticModelCreate
-from auth import get_current_active_user
 
 router = APIRouter()
 
@@ -98,14 +97,9 @@ DEFAULT_MODELS = {
 }
 
 @router.get("/", response_model=List[SemanticModelSchema])
-async def get_models(
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    # Get user's models
-    models = db.query(SemanticModel).filter(
-        SemanticModel.tenant_id == current_user.tenant_id
-    ).all()
+async def get_models(db: Session = Depends(get_db)):
+    # Get all models
+    models = db.query(SemanticModel).all()
     
     # If no models exist, create default ones
     if not models:
@@ -114,31 +108,21 @@ async def get_models(
                 id=model_id,
                 name=model_data["name"],
                 description=model_data["description"],
-                schema_definition=model_data["schema_definition"],
-                tenant_id=current_user.tenant_id,
-                created_by=current_user.id
+                schema_definition=model_data["schema_definition"]
             )
             db.add(db_model)
         
         db.commit()
-        models = db.query(SemanticModel).filter(
-            SemanticModel.tenant_id == current_user.tenant_id
-        ).all()
+        models = db.query(SemanticModel).all()
     
     return [SemanticModelSchema.from_orm(model) for model in models]
 
 @router.post("/", response_model=SemanticModelSchema)
-async def create_model(
-    model_data: SemanticModelCreate,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
+async def create_model(model_data: SemanticModelCreate, db: Session = Depends(get_db)):
     db_model = SemanticModel(
         name=model_data.name,
         description=model_data.description,
-        schema_definition=model_data.schema_definition,
-        tenant_id=current_user.tenant_id,
-        created_by=current_user.id
+        schema_definition=model_data.schema_definition
     )
     
     db.add(db_model)
@@ -148,15 +132,8 @@ async def create_model(
     return SemanticModelSchema.from_orm(db_model)
 
 @router.get("/{model_id}", response_model=SemanticModelSchema)
-async def get_model(
-    model_id: str,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    model = db.query(SemanticModel).filter(
-        SemanticModel.id == model_id,
-        SemanticModel.tenant_id == current_user.tenant_id
-    ).first()
+async def get_model(model_id: str, db: Session = Depends(get_db)):
+    model = db.query(SemanticModel).filter(SemanticModel.id == model_id).first()
     
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
@@ -164,15 +141,8 @@ async def get_model(
     return SemanticModelSchema.from_orm(model)
 
 @router.get("/{model_id}/metrics")
-async def get_model_metrics(
-    model_id: str,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    model = db.query(SemanticModel).filter(
-        SemanticModel.id == model_id,
-        SemanticModel.tenant_id == current_user.tenant_id
-    ).first()
+async def get_model_metrics(model_id: str, db: Session = Depends(get_db)):
+    model = db.query(SemanticModel).filter(SemanticModel.id == model_id).first()
     
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
@@ -180,15 +150,8 @@ async def get_model_metrics(
     return model.schema_definition.get("metrics", [])
 
 @router.get("/{model_id}/dimensions")
-async def get_model_dimensions(
-    model_id: str,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    model = db.query(SemanticModel).filter(
-        SemanticModel.id == model_id,
-        SemanticModel.tenant_id == current_user.tenant_id
-    ).first()
+async def get_model_dimensions(model_id: str, db: Session = Depends(get_db)):
+    model = db.query(SemanticModel).filter(SemanticModel.id == model_id).first()
     
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")

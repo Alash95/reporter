@@ -7,9 +7,8 @@ import aiofiles
 from datetime import datetime
 
 from database import get_db
-from models import User, UploadedFile, SemanticModel
+from models import UploadedFile, SemanticModel
 from schemas import FileUploadResponse, FileListResponse, FileProcessingStatus
-from auth import get_current_active_user
 from services.file_processor import FileProcessorService
 
 router = APIRouter()
@@ -23,7 +22,6 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 async def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     # Validate file
@@ -59,8 +57,6 @@ async def upload_file(
         file_type=file_ext[1:],  # Remove the dot
         file_size=len(content),
         file_path=file_path,
-        user_id=current_user.id,
-        tenant_id=current_user.tenant_id,
         processing_status="pending"
     )
     
@@ -73,8 +69,7 @@ async def upload_file(
         file_processor.process_file,
         file_id,
         file_path,
-        file_ext[1:],
-        current_user.tenant_id
+        file_ext[1:]
     )
     
     return FileUploadResponse(
@@ -85,13 +80,8 @@ async def upload_file(
     )
 
 @router.get("/", response_model=List[FileListResponse])
-async def list_files(
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    files = db.query(UploadedFile).filter(
-        UploadedFile.tenant_id == current_user.tenant_id
-    ).order_by(UploadedFile.created_at.desc()).all()
+async def list_files(db: Session = Depends(get_db)):
+    files = db.query(UploadedFile).order_by(UploadedFile.created_at.desc()).all()
     
     return [
         FileListResponse(
@@ -107,15 +97,8 @@ async def list_files(
     ]
 
 @router.get("/{file_id}/status", response_model=FileProcessingStatus)
-async def get_file_status(
-    file_id: str,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    file = db.query(UploadedFile).filter(
-        UploadedFile.id == file_id,
-        UploadedFile.tenant_id == current_user.tenant_id
-    ).first()
+async def get_file_status(file_id: str, db: Session = Depends(get_db)):
+    file = db.query(UploadedFile).filter(UploadedFile.id == file_id).first()
     
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
@@ -128,16 +111,8 @@ async def get_file_status(
     )
 
 @router.get("/{file_id}/preview")
-async def preview_file_data(
-    file_id: str,
-    limit: int = 100,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    file = db.query(UploadedFile).filter(
-        UploadedFile.id == file_id,
-        UploadedFile.tenant_id == current_user.tenant_id
-    ).first()
+async def preview_file_data(file_id: str, limit: int = 100, db: Session = Depends(get_db)):
+    file = db.query(UploadedFile).filter(UploadedFile.id == file_id).first()
     
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
@@ -160,15 +135,8 @@ async def preview_file_data(
     return data
 
 @router.delete("/{file_id}")
-async def delete_file(
-    file_id: str,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    file = db.query(UploadedFile).filter(
-        UploadedFile.id == file_id,
-        UploadedFile.tenant_id == current_user.tenant_id
-    ).first()
+async def delete_file(file_id: str, db: Session = Depends(get_db)):
+    file = db.query(UploadedFile).filter(UploadedFile.id == file_id).first()
     
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
@@ -190,13 +158,9 @@ async def delete_file(
 async def create_semantic_model_from_file(
     file_id: str,
     model_name: str,
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    file = db.query(UploadedFile).filter(
-        UploadedFile.id == file_id,
-        UploadedFile.tenant_id == current_user.tenant_id
-    ).first()
+    file = db.query(UploadedFile).filter(UploadedFile.id == file_id).first()
     
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
@@ -207,9 +171,7 @@ async def create_semantic_model_from_file(
     # Generate semantic model from file data
     semantic_model = await file_processor.create_semantic_model(
         file.extracted_data,
-        model_name,
-        current_user.tenant_id,
-        current_user.id
+        model_name
     )
     
     # Update file record

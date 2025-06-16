@@ -1,10 +1,8 @@
 import React from 'react';
-import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { Moon, Sun, User, LogOut, Bell } from 'lucide-react';
+import { Moon, Sun, Bell } from 'lucide-react';
 
 const Header: React.FC = () => {
-  const { user, logout } = useAuth();
   const { isDark, toggleTheme } = useTheme();
 
   return (
@@ -34,21 +32,9 @@ const Header: React.FC = () => {
           </button>
 
           <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-2">
-              <div className="h-8 w-8 bg-blue-500 rounded-full flex items-center justify-center">
-                <User className="h-4 w-4 text-white" />
-              </div>
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                {user?.email}
-              </span>
+            <div className="text-sm text-gray-700 dark:text-gray-300">
+              Welcome to Analytics Platform
             </div>
-
-            <button
-              onClick={logout}
-              className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-            >
-              <LogOut className="h-4 w-4 text-gray-600 dark:text-gray-300" />
-            </button>
           </div>
         </div>
       </div>

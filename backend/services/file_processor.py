@@ -20,7 +20,7 @@ class FileProcessorService:
             'txt': self._process_txt
         }
     
-    async def process_file(self, file_id: str, file_path: str, file_type: str, tenant_id: str):
+    async def process_file(self, file_id: str, file_path: str, file_type: str):
         """Process uploaded file and extract data"""
         db = SessionLocal()
         try:
@@ -198,13 +198,7 @@ class FileProcessorService:
             "column_count": len(columns_info)
         }
     
-    async def create_semantic_model(
-        self, 
-        extracted_data: Dict[str, Any], 
-        model_name: str, 
-        tenant_id: str, 
-        user_id: str
-    ) -> SemanticModel:
+    async def create_semantic_model(self, extracted_data: Dict[str, Any], model_name: str) -> SemanticModel:
         """Create semantic model from extracted data"""
         db = SessionLocal()
         try:
@@ -215,9 +209,7 @@ class FileProcessorService:
             semantic_model = SemanticModel(
                 name=model_name,
                 description=f"Auto-generated model from uploaded data",
-                schema_definition=schema_definition,
-                tenant_id=tenant_id,
-                created_by=user_id
+                schema_definition=schema_definition
             )
             
             db.add(semantic_model)

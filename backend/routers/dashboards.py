@@ -3,26 +3,19 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from database import get_db
-from models import User, Dashboard, Widget
+from models import Dashboard, Widget
 from schemas import DashboardCreate, DashboardResponse, WidgetCreate, WidgetResponse
-from auth import get_current_active_user
 
 router = APIRouter()
 
 @router.post("/", response_model=DashboardResponse)
-async def create_dashboard(
-    dashboard_data: DashboardCreate,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
+async def create_dashboard(dashboard_data: DashboardCreate, db: Session = Depends(get_db)):
     dashboard = Dashboard(
         name=dashboard_data.name,
         description=dashboard_data.description,
         layout=dashboard_data.layout or {},
         widgets=dashboard_data.widgets or [],
-        is_public=dashboard_data.is_public,
-        user_id=current_user.id,
-        tenant_id=current_user.tenant_id
+        is_public=dashboard_data.is_public
     )
     
     db.add(dashboard)
@@ -32,26 +25,13 @@ async def create_dashboard(
     return DashboardResponse.from_orm(dashboard)
 
 @router.get("/", response_model=List[DashboardResponse])
-async def list_dashboards(
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    dashboards = db.query(Dashboard).filter(
-        Dashboard.tenant_id == current_user.tenant_id
-    ).order_by(Dashboard.updated_at.desc()).all()
-    
+async def list_dashboards(db: Session = Depends(get_db)):
+    dashboards = db.query(Dashboard).order_by(Dashboard.updated_at.desc()).all()
     return [DashboardResponse.from_orm(dashboard) for dashboard in dashboards]
 
 @router.get("/{dashboard_id}", response_model=DashboardResponse)
-async def get_dashboard(
-    dashboard_id: str,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    dashboard = db.query(Dashboard).filter(
-        Dashboard.id == dashboard_id,
-        Dashboard.tenant_id == current_user.tenant_id
-    ).first()
+async def get_dashboard(dashboard_id: str, db: Session = Depends(get_db)):
+    dashboard = db.query(Dashboard).filter(Dashboard.id == dashboard_id).first()
     
     if not dashboard:
         raise HTTPException(status_code=404, detail="Dashboard not found")
@@ -62,13 +42,9 @@ async def get_dashboard(
 async def update_dashboard(
     dashboard_id: str,
     dashboard_data: DashboardCreate,
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    dashboard = db.query(Dashboard).filter(
-        Dashboard.id == dashboard_id,
-        Dashboard.tenant_id == current_user.tenant_id
-    ).first()
+    dashboard = db.query(Dashboard).filter(Dashboard.id == dashboard_id).first()
     
     if not dashboard:
         raise HTTPException(status_code=404, detail="Dashboard not found")
@@ -85,15 +61,8 @@ async def update_dashboard(
     return DashboardResponse.from_orm(dashboard)
 
 @router.delete("/{dashboard_id}")
-async def delete_dashboard(
-    dashboard_id: str,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    dashboard = db.query(Dashboard).filter(
-        Dashboard.id == dashboard_id,
-        Dashboard.tenant_id == current_user.tenant_id
-    ).first()
+async def delete_dashboard(dashboard_id: str, db: Session = Depends(get_db)):
+    dashboard = db.query(Dashboard).filter(Dashboard.id == dashboard_id).first()
     
     if not dashboard:
         raise HTTPException(status_code=404, detail="Dashboard not found")
@@ -107,13 +76,9 @@ async def delete_dashboard(
 async def add_widget_to_dashboard(
     dashboard_id: str,
     widget_data: WidgetCreate,
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    dashboard = db.query(Dashboard).filter(
-        Dashboard.id == dashboard_id,
-        Dashboard.tenant_id == current_user.tenant_id
-    ).first()
+    dashboard = db.query(Dashboard).filter(Dashboard.id == dashboard_id).first()
     
     if not dashboard:
         raise HTTPException(status_code=404, detail="Dashboard not found")
@@ -134,15 +99,8 @@ async def add_widget_to_dashboard(
     return WidgetResponse.from_orm(widget)
 
 @router.get("/{dashboard_id}/widgets", response_model=List[WidgetResponse])
-async def get_dashboard_widgets(
-    dashboard_id: str,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    dashboard = db.query(Dashboard).filter(
-        Dashboard.id == dashboard_id,
-        Dashboard.tenant_id == current_user.tenant_id
-    ).first()
+async def get_dashboard_widgets(dashboard_id: str, db: Session = Depends(get_db)):
+    dashboard = db.query(Dashboard).filter(Dashboard.id == dashboard_id).first()
     
     if not dashboard:
         raise HTTPException(status_code=404, detail="Dashboard not found")
@@ -155,13 +113,9 @@ async def get_dashboard_widgets(
 async def update_widget(
     widget_id: str,
     widget_data: WidgetCreate,
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    widget = db.query(Widget).join(Dashboard).filter(
-        Widget.id == widget_id,
-        Dashboard.tenant_id == current_user.tenant_id
-    ).first()
+    widget = db.query(Widget).join(Dashboard).filter(Widget.id == widget_id).first()
     
     if not widget:
         raise HTTPException(status_code=404, detail="Widget not found")
@@ -178,15 +132,8 @@ async def update_widget(
     return WidgetResponse.from_orm(widget)
 
 @router.delete("/widgets/{widget_id}")
-async def delete_widget(
-    widget_id: str,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    widget = db.query(Widget).join(Dashboard).filter(
-        Widget.id == widget_id,
-        Dashboard.tenant_id == current_user.tenant_id
-    ).first()
+async def delete_widget(widget_id: str, db: Session = Depends(get_db)):
+    widget = db.query(Widget).join(Dashboard).filter(Widget.id == widget_id).first()
     
     if not widget:
         raise HTTPException(status_code=404, detail="Widget not found")

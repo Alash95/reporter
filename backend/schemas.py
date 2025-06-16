@@ -1,33 +1,6 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-
-# User schemas
-class UserBase(BaseModel):
-    email: EmailStr
-    full_name: Optional[str] = None
-
-class UserCreate(UserBase):
-    password: str
-
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
-
-class User(UserBase):
-    id: str
-    is_active: bool
-    is_admin: bool
-    tenant_id: str
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-    user: User
 
 # File schemas
 class FileUploadResponse(BaseModel):
@@ -66,7 +39,6 @@ class DashboardResponse(BaseModel):
     layout: Dict[str, Any]
     widgets: List[Dict[str, Any]]
     is_public: bool
-    user_id: str
     created_at: datetime
     updated_at: datetime
     
@@ -124,8 +96,6 @@ class SemanticModelCreate(SemanticModelBase):
 
 class SemanticModel(SemanticModelBase):
     id: str
-    tenant_id: str
-    created_by: str
     created_at: datetime
     updated_at: datetime
     
@@ -156,7 +126,6 @@ class QueryResult(BaseModel):
 
 class Query(QueryBase):
     id: str
-    user_id: str
     execution_time: Optional[float]
     row_count: Optional[int]
     status: str

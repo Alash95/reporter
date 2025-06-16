@@ -4,31 +4,22 @@ from sqlalchemy import func
 from datetime import datetime, timedelta
 
 from database import get_db
-from models import Query, User
-from auth import get_current_active_user
+from models import Query
 
 router = APIRouter()
 
 @router.get("/queries")
-async def get_query_analytics(
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    # Get recent queries for the user's tenant
-    recent_queries = db.query(Query).filter(
-        Query.user_id == current_user.id
-    ).order_by(Query.created_at.desc()).limit(50).all()
+async def get_query_analytics(db: Session = Depends(get_db)):
+    # Get recent queries
+    recent_queries = db.query(Query).order_by(Query.created_at.desc()).limit(50).all()
     
     # Calculate average execution time
     avg_execution_time = db.query(func.avg(Query.execution_time)).filter(
-        Query.user_id == current_user.id,
         Query.status == "completed"
     ).scalar() or 0
     
     # Get total query count
-    total_queries = db.query(func.count(Query.id)).filter(
-        Query.user_id == current_user.id
-    ).scalar() or 0
+    total_queries = db.query(func.count(Query.id)).scalar() or 0
     
     return {
         "totalQueries": total_queries,
@@ -46,10 +37,7 @@ async def get_query_analytics(
     }
 
 @router.get("/performance")
-async def get_performance_metrics(
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
+async def get_performance_metrics():
     # Mock performance data - in production, this would come from monitoring systems
     return {
         "cpu_usage": 45.2,
