@@ -24,7 +24,7 @@ const Dashboard: React.FC = () => {
   const fetchDashboardData = async () => {
     try {
       // Fetch revenue by period
-      const revenueResponse = await fetch('http://localhost:3001/api/query/execute', {
+      const revenueResponse = await fetch('http://localhost:8000/api/query/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -39,7 +39,7 @@ const Dashboard: React.FC = () => {
       setRevenueData(revenueResult.data);
 
       // Fetch customer segments
-      const segmentResponse = await fetch('http://localhost:3001/api/query/execute', {
+      const segmentResponse = await fetch('http://localhost:8000/api/query/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -54,7 +54,7 @@ const Dashboard: React.FC = () => {
       setSegmentData(segmentResult.data);
 
       // Fetch region data
-      const regionResponse = await fetch('http://localhost:3001/api/query/execute', {
+      const regionResponse = await fetch('http://localhost:8000/api/query/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

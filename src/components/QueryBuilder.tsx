@@ -26,7 +26,7 @@ const QueryBuilder: React.FC = () => {
 
   const fetchModels = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/models', {
+      const response = await fetch('http://localhost:8000/api/models', {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -45,7 +45,7 @@ const QueryBuilder: React.FC = () => {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:3001/api/query/execute', {
+      const response = await fetch('http://localhost:8000/api/query/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

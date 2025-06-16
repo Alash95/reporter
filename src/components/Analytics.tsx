@@ -15,7 +15,7 @@ const Analytics: React.FC = () => {
 
   const fetchAnalytics = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/analytics/queries', {
+      const response = await fetch('http://localhost:8000/api/analytics/queries', {
         headers: {
           'Authorization': `Bearer ${token}`,
         },

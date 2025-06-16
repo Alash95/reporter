@@ -42,7 +42,7 @@ const AIAssistant: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://localhost:3001/api/ai/query', {
+      const response = await fetch('http://localhost:8000/api/ai/query', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -85,7 +85,7 @@ const AIAssistant: React.FC = () => {
 
   const executeQuery = async (sql: string) => {
     try {
-      const response = await fetch('http://localhost:3001/api/query/execute', {
+      const response = await fetch('http://localhost:8000/api/query/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
