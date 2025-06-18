@@ -23,3 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 .env
+*__pycache__
+venv/
+package-lock.json
+package.json

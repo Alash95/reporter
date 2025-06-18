@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Play, Save, Download, Copy, Clock, Database } from 'lucide-react';
+import { Play, Download, Copy, Clock, Database } from 'lucide-react';
 
 interface QueryResult {
   data: any[];
@@ -45,7 +45,7 @@ const QueryBuilder: React.FC = () => {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:8000/api/query/execute', {
+      const response = await fetch('http://localhost:8000/api/queries/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -53,19 +53,24 @@ const QueryBuilder: React.FC = () => {
         },
         body: JSON.stringify({
           sql,
-          model: selectedModel,
-          useCache: true
+          model_id: selectedModel,
+          use_cache: true
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Query execution failed');
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Query execution failed');
       }
 
       const data = await response.json();
       setResult(data);
     } catch (error) {
-      setError(error.message);
+      if (error instanceof Error) {
+        setError(error.message);
+      } else {
+        setError(String(error));
+      }
     } finally {
       setIsExecuting(false);
     }
@@ -255,7 +260,7 @@ const QueryBuilder: React.FC = () => {
                       Tables:
                     </p>
                     <ul className="text-sm text-gray-600 dark:text-gray-400 ml-2">
-                      {Object.keys(model.tables || {}).map((table) => (
+                      {Object.keys(model.schema_definition?.tables || {}).map((table) => (
                         <li key={table} className="cursor-pointer hover:text-blue-600">
                           {table}
                         </li>
@@ -267,7 +272,7 @@ const QueryBuilder: React.FC = () => {
                       Metrics:
                     </p>
                     <ul className="text-sm text-gray-600 dark:text-gray-400 ml-2">
-                      {(model.metrics || []).map((metric: any) => (
+                      {(model.schema_definition?.metrics || []).map((metric: any) => (
                         <li key={metric.name} className="cursor-pointer hover:text-blue-600">
                           {metric.title}
                         </li>
@@ -279,7 +284,7 @@ const QueryBuilder: React.FC = () => {
                       Dimensions:
                     </p>
                     <ul className="text-sm text-gray-600 dark:text-gray-400 ml-2">
-                      {(model.dimensions || []).map((dimension: any) => (
+                      {(model.schema_definition?.dimensions || []).map((dimension: any) => (
                         <li key={dimension.name} className="cursor-pointer hover:text-blue-600">
                           {dimension.title}
                         </li>

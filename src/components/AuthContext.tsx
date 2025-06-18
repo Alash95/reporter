@@ -29,60 +29,20 @@ export const useAuth = () => {
   return context;
 };
 
-// Standalone useAuthenticatedFetch hook that can be imported separately
 export const useAuthenticatedFetch = () => {
-  const { token, logout } = useAuth();
+  const { token } = useAuth();
 
   const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
-    // Prepare headers - convert to a plain object for easier manipulation
-    const headers: Record<string, string> = {};
-    
-    // Copy existing headers
-    if (options.headers) {
-      if (options.headers instanceof Headers) {
-        options.headers.forEach((value, key) => {
-          headers[key] = value;
-        });
-      } else if (Array.isArray(options.headers)) {
-        options.headers.forEach(([key, value]) => {
-          headers[key] = value;
-        });
-      } else {
-        Object.assign(headers, options.headers);
-      }
-    }
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` }),
+      ...options.headers,
+    };
 
-    // Add Content-Type only if not already set and not FormData
-    if (!headers['Content-Type'] && !headers['content-type'] && !(options.body instanceof FormData)) {
-      headers['Content-Type'] = 'application/json';
-    }
-
-    // Add Authorization header if token exists
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers,
-      });
-
-      // Handle authentication errors
-      if (response.status === 401) {
-        console.warn('Authentication failed - logging out user');
-        logout();
-        throw new Error('Authentication failed. Please login again.');
-      }
-
-      return response;
-    } catch (error) {
-      // Network errors or other fetch failures
-      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-        throw new Error('Network error. Please check your connection and try again.');
-      }
-      throw error;
-    }
+    return fetch(url, {
+      ...options,
+      headers,
+    });
   };
 
   return authenticatedFetch;
@@ -144,7 +104,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
 
     initializeAuth();
-  }, [API_BASE_URL]);
+  }, []);
 
   const login = async (email: string, password: string): Promise<void> => {
     try {
@@ -277,22 +237,4 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-};
-
-// Additional utility hook for checking if user is authenticated
-export const useIsAuthenticated = (): boolean => {
-  const { isAuthenticated } = useAuth();
-  return isAuthenticated;
-};
-
-// Utility hook for getting user info
-export const useUser = (): User | null => {
-  const { user } = useAuth();
-  return user;
-};
-
-// Utility hook for getting token
-export const useToken = (): string | null => {
-  const { token } = useAuth();
-  return token;
 };

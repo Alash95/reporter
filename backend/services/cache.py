@@ -1,4 +1,4 @@
-import aioredis
+import redis.asyncio as redis
 import json
 import os
 from typing import Optional, Any
@@ -12,7 +12,7 @@ class CacheService:
         
     async def connect(self):
         try:
-            self.redis = aioredis.from_url(self.redis_url, decode_responses=True)
+            self.redis = redis.from_url(self.redis_url, decode_responses=True)
             await self.redis.ping()
         except Exception as e:
             print(f"Redis connection failed: {e}")

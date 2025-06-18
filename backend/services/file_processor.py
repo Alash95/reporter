@@ -1,13 +1,13 @@
 import pandas as pd
-import pdfplumber
-import docx
 import json
 import os
-from typing import Dict, Any, Optional
-from sqlalchemy.orm import Session
-from database import SessionLocal
-from models import UploadedFile, SemanticModel
+from typing import Dict, Any, List
 import uuid
+from sqlalchemy.orm import Session
+from models import UploadedFile, SemanticModel
+import PyPDF2
+import docx
+import numpy as np
 
 class FileProcessorService:
     def __init__(self):
@@ -15,200 +15,324 @@ class FileProcessorService:
             'csv': self._process_csv,
             'xlsx': self._process_excel,
             'xls': self._process_excel,
+            'json': self._process_json,
             'pdf': self._process_pdf,
             'docx': self._process_docx,
-            'txt': self._process_txt
+            'txt': self._process_text
         }
     
     async def process_file(self, file_id: str, file_path: str, file_type: str):
         """Process uploaded file and extract data"""
+        from database import SessionLocal
+        
         db = SessionLocal()
         try:
-            # Update status to processing
-            file_record = db.query(UploadedFile).filter(UploadedFile.id == file_id).first()
+            # Get file record
+            file_record = db.query(UploadedFile).filter(
+                UploadedFile.id == file_id
+            ).first()
+            
             if not file_record:
                 return
             
+            # Update status to processing
             file_record.processing_status = "processing"
             db.commit()
             
-            # Process based on file type
-            if file_type in self.supported_types:
-                extracted_data = await self.supported_types[file_type](file_path)
+            # Process file based on type
+            processor = self.supported_types.get(file_type.lower())
+            if not processor:
+                file_record.processing_status = "failed"
+                db.commit()
+                return
+            
+            try:
+                extracted_data = processor(file_path)
                 
-                # Store extracted data
+                # Update file record with extracted data
                 file_record.extracted_data = extracted_data
                 file_record.processing_status = "completed"
-            else:
-                file_record.processing_status = "failed"
+                file_record.metadata = {
+                    "rows": len(extracted_data.get('rows', [])),
+                    "columns": len(extracted_data.get('columns', [])),
+                    "data_types": extracted_data.get('data_types', {}),
+                    "file_info": extracted_data.get('file_info', {})
+                }
                 
-            db.commit()
-            
-        except Exception as e:
-            file_record.processing_status = "failed"
-            db.commit()
-            print(f"Error processing file {file_id}: {str(e)}")
+                db.commit()
+                
+            except Exception as e:
+                file_record.processing_status = "failed"
+                file_record.metadata = {"error": str(e)}
+                db.commit()
+                
         finally:
             db.close()
     
-    async def _process_csv(self, file_path: str) -> Dict[str, Any]:
+    def _process_csv(self, file_path: str) -> Dict[str, Any]:
         """Process CSV file"""
-        df = pd.read_csv(file_path)
-        return self._dataframe_to_dict(df)
-    
-    async def _process_excel(self, file_path: str) -> Dict[str, Any]:
-        """Process Excel file"""
-        # Read all sheets
-        excel_file = pd.ExcelFile(file_path)
-        sheets_data = {}
-        
-        for sheet_name in excel_file.sheet_names:
-            df = pd.read_excel(file_path, sheet_name=sheet_name)
-            sheets_data[sheet_name] = self._dataframe_to_dict(df)
-        
-        # If only one sheet, return its data directly
-        if len(sheets_data) == 1:
-            return list(sheets_data.values())[0]
-        
-        return {
-            "type": "multi_sheet",
-            "sheets": sheets_data
-        }
-    
-    async def _process_pdf(self, file_path: str) -> Dict[str, Any]:
-        """Process PDF file - extract text and try to find tables"""
-        text_content = []
-        tables = []
-        
-        with pdfplumber.open(file_path) as pdf:
-            for page_num, page in enumerate(pdf.pages):
-                # Extract text
-                text = page.extract_text()
-                if text:
-                    text_content.append({
-                        "page": page_num + 1,
-                        "text": text
-                    })
-                
-                # Try to extract tables
-                page_tables = page.extract_tables()
-                for table_num, table in enumerate(page_tables):
-                    if table:
-                        # Convert table to DataFrame
-                        df = pd.DataFrame(table[1:], columns=table[0])
-                        tables.append({
-                            "page": page_num + 1,
-                            "table": table_num + 1,
-                            "data": self._dataframe_to_dict(df)
-                        })
-        
-        return {
-            "type": "pdf",
-            "text_content": text_content,
-            "tables": tables
-        }
-    
-    async def _process_docx(self, file_path: str) -> Dict[str, Any]:
-        """Process DOCX file"""
-        doc = docx.Document(file_path)
-        
-        # Extract text
-        text_content = []
-        for para in doc.paragraphs:
-            if para.text.strip():
-                text_content.append(para.text)
-        
-        # Extract tables
-        tables = []
-        for table_num, table in enumerate(doc.tables):
-            table_data = []
-            for row in table.rows:
-                row_data = [cell.text for cell in row.cells]
-                table_data.append(row_data)
+        try:
+            # Try different encodings
+            encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+            df = None
             
-            if table_data:
-                df = pd.DataFrame(table_data[1:], columns=table_data[0])
-                tables.append({
-                    "table": table_num + 1,
-                    "data": self._dataframe_to_dict(df)
-                })
-        
-        return {
-            "type": "docx",
-            "text_content": text_content,
-            "tables": tables
-        }
-    
-    async def _process_txt(self, file_path: str) -> Dict[str, Any]:
-        """Process TXT file"""
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # Try to detect if it's structured data (CSV-like)
-        lines = content.split('\n')
-        if len(lines) > 1:
-            # Check if it looks like CSV
-            first_line = lines[0]
-            if ',' in first_line or '\t' in first_line:
+            for encoding in encodings:
                 try:
-                    # Try to parse as CSV
-                    df = pd.read_csv(file_path, sep=',' if ',' in first_line else '\t')
-                    return self._dataframe_to_dict(df)
-                except:
-                    pass
-        
-        return {
-            "type": "text",
-            "content": content,
-            "lines": lines
-        }
+                    df = pd.read_csv(file_path, encoding=encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if df is None:
+                raise ValueError("Could not read CSV file with any supported encoding")
+            
+            return self._dataframe_to_dict(df)
+            
+        except Exception as e:
+            raise Exception(f"Error processing CSV: {str(e)}")
+    
+    def _process_excel(self, file_path: str) -> Dict[str, Any]:
+        """Process Excel file"""
+        try:
+            # Read first sheet
+            df = pd.read_excel(file_path, sheet_name=0)
+            return self._dataframe_to_dict(df)
+            
+        except Exception as e:
+            raise Exception(f"Error processing Excel: {str(e)}")
+    
+    def _process_json(self, file_path: str) -> Dict[str, Any]:
+        """Process JSON file"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # If data is a list of objects, convert to DataFrame
+            if isinstance(data, list) and all(isinstance(item, dict) for item in data):
+                df = pd.DataFrame(data)
+                return self._dataframe_to_dict(df)
+            
+            # If data is a single object, treat as one row
+            elif isinstance(data, dict):
+                df = pd.DataFrame([data])
+                return self._dataframe_to_dict(df)
+            
+            # Otherwise, return as text content
+            else:
+                return {
+                    "type": "text",
+                    "content": json.dumps(data, indent=2),
+                    "file_info": {"original_type": "json"}
+                }
+                
+        except Exception as e:
+            raise Exception(f"Error processing JSON: {str(e)}")
+    
+    def _process_pdf(self, file_path: str) -> Dict[str, Any]:
+        """Process PDF file"""
+        try:
+            text_content = ""
+            
+            with open(file_path, 'rb') as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                
+                for page in pdf_reader.pages:
+                    text_content += page.extract_text() + "\n"
+            
+            return {
+                "type": "text",
+                "content": text_content,
+                "file_info": {
+                    "pages": len(pdf_reader.pages),
+                    "original_type": "pdf"
+                }
+            }
+            
+        except Exception as e:
+            raise Exception(f"Error processing PDF: {str(e)}")
+    
+    def _process_docx(self, file_path: str) -> Dict[str, Any]:
+        """Process Word document"""
+        try:
+            doc = docx.Document(file_path)
+            text_content = ""
+            
+            for paragraph in doc.paragraphs:
+                text_content += paragraph.text + "\n"
+            
+            return {
+                "type": "text",
+                "content": text_content,
+                "file_info": {
+                    "paragraphs": len(doc.paragraphs),
+                    "original_type": "docx"
+                }
+            }
+            
+        except Exception as e:
+            raise Exception(f"Error processing DOCX: {str(e)}")
+    
+    def _process_text(self, file_path: str) -> Dict[str, Any]:
+        """Process text file"""
+        try:
+            encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+            content = None
+            
+            for encoding in encodings:
+                try:
+                    with open(file_path, 'r', encoding=encoding) as f:
+                        content = f.read()
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if content is None:
+                raise ValueError("Could not read text file with any supported encoding")
+            
+            return {
+                "type": "text",
+                "content": content,
+                "file_info": {
+                    "length": len(content),
+                    "lines": len(content.split('\n')),
+                    "original_type": "txt"
+                }
+            }
+            
+        except Exception as e:
+            raise Exception(f"Error processing text file: {str(e)}")
     
     def _dataframe_to_dict(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Convert DataFrame to structured dictionary"""
+        """Convert DataFrame to dictionary format"""
         # Clean the dataframe
-        df = df.dropna(how='all')  # Remove empty rows
-        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]  # Remove unnamed columns
+        df = self._clean_dataframe(df)
         
-        # Infer column types
-        columns_info = []
+        # Get column info
+        columns = []
+        data_types = {}
+        
         for col in df.columns:
-            col_type = "string"
-            if pd.api.types.is_numeric_dtype(df[col]):
-                col_type = "number"
-            elif pd.api.types.is_datetime64_any_dtype(df[col]):
-                col_type = "datetime"
-            elif pd.api.types.is_bool_dtype(df[col]):
-                col_type = "boolean"
-            
-            columns_info.append({
+            col_type = self._infer_column_type(df[col])
+            columns.append({
                 "name": str(col),
-                "type": col_type,
-                "nullable": df[col].isnull().any(),
-                "unique_values": df[col].nunique() if col_type == "string" else None
+                "type": col_type
             })
+            data_types[str(col)] = col_type
         
         # Convert to records
-        records = df.to_dict('records')
+        rows = df.to_dict('records')
+        
+        # Handle NaN values
+        for row in rows:
+            for key, value in row.items():
+                if pd.isna(value):
+                    row[key] = None
+                elif isinstance(value, (np.int64, np.int32)):
+                    row[key] = int(value)
+                elif isinstance(value, (np.float64, np.float32)):
+                    row[key] = float(value)
         
         return {
             "type": "tabular",
-            "columns": columns_info,
-            "rows": records,
-            "row_count": len(records),
-            "column_count": len(columns_info)
+            "columns": columns,
+            "rows": rows,
+            "row_count": len(df),
+            "column_count": len(df.columns),
+            "data_types": data_types,
+            "file_info": {
+                "shape": df.shape,
+                "memory_usage": df.memory_usage(deep=True).sum()
+            }
         }
     
+    def _clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Clean and prepare dataframe"""
+        # Remove completely empty rows and columns
+        df = df.dropna(how='all').dropna(axis=1, how='all')
+        
+        # Convert column names to strings
+        df.columns = [str(col) for col in df.columns]
+        
+        # Handle duplicate column names
+        df.columns = pd.io.common.dedup_names(df.columns, is_potential_multiindex=False)
+        
+        return df
+    
+    def _infer_column_type(self, series: pd.Series) -> str:
+        """Infer the type of a pandas Series"""
+        if pd.api.types.is_numeric_dtype(series):
+            if pd.api.types.is_integer_dtype(series):
+                return "integer"
+            else:
+                return "number"
+        elif pd.api.types.is_datetime64_any_dtype(series):
+            return "datetime"
+        elif pd.api.types.is_bool_dtype(series):
+            return "boolean"
+        else:
+            return "string"
+    
     async def create_semantic_model(self, extracted_data: Dict[str, Any], model_name: str) -> SemanticModel:
-        """Create semantic model from extracted data"""
+        """Create a semantic model from extracted data"""
+        from database import SessionLocal
+        
         db = SessionLocal()
         try:
-            # Generate semantic model schema
-            schema_definition = self._generate_semantic_schema(extracted_data, model_name)
+            if extracted_data.get("type") != "tabular":
+                raise ValueError("Can only create semantic models from tabular data")
+            
+            # Generate schema definition
+            schema_definition = {
+                "tables": {
+                    "main_table": {
+                        "sql": "SELECT * FROM uploaded_data",
+                        "columns": {}
+                    }
+                },
+                "metrics": [],
+                "dimensions": [],
+                "joins": []
+            }
+            
+            # Add columns
+            for col in extracted_data.get("columns", []):
+                col_name = col["name"]
+                col_type = col["type"]
+                
+                schema_definition["tables"]["main_table"]["columns"][col_name] = {
+                    "type": col_type,
+                    "primary": False
+                }
+                
+                # Add as dimension or metric
+                if col_type in ["string", "boolean"]:
+                    schema_definition["dimensions"].append({
+                        "name": col_name.lower().replace(" ", "_"),
+                        "title": col_name,
+                        "sql": f"main_table.{col_name}",
+                        "type": col_type
+                    })
+                elif col_type in ["number", "integer"]:
+                    # Add as both metric and dimension
+                    schema_definition["metrics"].append({
+                        "name": f"sum_{col_name.lower().replace(' ', '_')}",
+                        "title": f"Total {col_name}",
+                        "type": "sum",
+                        "sql": f"SUM(main_table.{col_name})",
+                        "format": "number"
+                    })
+                    
+                    schema_definition["dimensions"].append({
+                        "name": col_name.lower().replace(" ", "_"),
+                        "title": col_name,
+                        "sql": f"main_table.{col_name}",
+                        "type": col_type
+                    })
             
             # Create semantic model
             semantic_model = SemanticModel(
                 name=model_name,
-                description=f"Auto-generated model from uploaded data",
+                description=f"Auto-generated semantic model for {model_name}",
                 schema_definition=schema_definition
             )
             
@@ -220,60 +344,3 @@ class FileProcessorService:
             
         finally:
             db.close()
-    
-    def _generate_semantic_schema(self, extracted_data: Dict[str, Any], model_name: str) -> Dict[str, Any]:
-        """Generate semantic model schema from extracted data"""
-        if extracted_data.get("type") == "tabular":
-            columns = extracted_data.get("columns", [])
-            
-            # Generate metrics (numeric columns)
-            metrics = []
-            dimensions = []
-            
-            for col in columns:
-                if col["type"] == "number":
-                    metrics.extend([
-                        {
-                            "name": f"sum_{col['name'].lower()}",
-                            "title": f"Total {col['name']}",
-                            "type": "sum",
-                            "sql": f"SUM({col['name']})",
-                            "format": "number"
-                        },
-                        {
-                            "name": f"avg_{col['name'].lower()}",
-                            "title": f"Average {col['name']}",
-                            "type": "avg",
-                            "sql": f"AVG({col['name']})",
-                            "format": "number"
-                        }
-                    ])
-                else:
-                    dimensions.append({
-                        "name": col['name'].lower(),
-                        "title": col['name'],
-                        "sql": col['name'],
-                        "type": col['type']
-                    })
-            
-            # Add count metric
-            metrics.append({
-                "name": "record_count",
-                "title": "Record Count",
-                "type": "count",
-                "sql": "COUNT(*)",
-                "format": "number"
-            })
-            
-            return {
-                "tables": {
-                    model_name.lower(): {
-                        "sql": f"SELECT * FROM {model_name.lower()}",
-                        "columns": {col["name"]: {"type": col["type"]} for col in columns}
-                    }
-                },
-                "metrics": metrics,
-                "dimensions": dimensions
-            }
-        
-        return {"tables": {}, "metrics": [], "dimensions": []}

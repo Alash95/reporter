@@ -6,17 +6,22 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Database URL - defaults to SQLite for development
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./analytics.db")
+# Database URL
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://username:password@localhost/ai_analytics_db"
+)
 
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-else:
-    engine = create_engine(DATABASE_URL)
+# Create engine
+engine = create_engine(DATABASE_URL)
 
+# Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Create Base class
 Base = declarative_base()
 
+# Dependency to get DB session
 def get_db():
     db = SessionLocal()
     try:

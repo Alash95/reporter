@@ -1,140 +1,167 @@
 import pandas as pd
-import numpy as np
-from typing import Dict, List, Any, Optional
-import random
-from datetime import datetime, timedelta
+import sqlite3
+import json
+from typing import Dict, Any, List, Optional
+from sqlalchemy.orm import Session
+from models import UploadedFile, SemanticModel
 
 class QueryEngine:
     def __init__(self):
-        self.mock_data = self._generate_mock_data()
+        self.temp_db_path = "temp_query.db"
     
-    def _generate_mock_data(self) -> List[Dict[str, Any]]:
-        """Generate mock e-commerce data"""
-        regions = ['North America', 'Europe', 'Asia Pacific', 'Latin America']
-        statuses = ['completed', 'pending', 'cancelled']
-        segments = ['Enterprise', 'SMB', 'Consumer']
+    async def execute_query(
+        self,
+        sql: str,
+        model_id: Optional[str],
+        user_id: str,
+        db: Session
+    ) -> Dict[str, Any]:
+        """Execute SQL query against user's data"""
         
-        data = []
-        for i in range(1000):
-            created_date = datetime.now() - timedelta(days=random.randint(0, 365))
-            data.append({
-                'id': f'order_{i + 1}',
-                'customer_id': f'customer_{random.randint(1, 200)}',
-                'total': round(random.uniform(50, 1000), 2),
-                'status': random.choice(statuses),
-                'region': random.choice(regions),
-                'customer_segment': random.choice(segments),
-                'created_at': created_date.isoformat(),
-                'month': created_date.strftime('%Y-%m'),
-                'year': created_date.year
-            })
-        
-        return data
-    
-    async def execute(self, sql: str, model_id: Optional[str] = None) -> Dict[str, Any]:
-        """Execute SQL query against mock data"""
         try:
-            # Simple query processing based on SQL patterns
-            sql_lower = sql.lower()
-            
-            if 'date_trunc' in sql_lower and 'revenue' in sql_lower:
-                return self._process_revenue_by_period()
-            elif 'segment' in sql_lower:
-                return self._process_customer_segments()
-            elif 'region' in sql_lower:
-                return self._process_revenue_by_region()
-            else:
-                return self._process_basic_aggregation()
+            # Get user's data
+            if model_id:
+                # Query using semantic model
+                model = db.query(SemanticModel).filter(
+                    SemanticModel.id == model_id
+                ).first()
                 
+                if not model:
+                    raise ValueError("Semantic model not found")
+                
+                # For now, we'll use the first available file
+                # In a real implementation, you'd map the model to specific data sources
+                user_files = db.query(UploadedFile).filter(
+                    UploadedFile.user_id == user_id,
+                    UploadedFile.processing_status == "completed"
+                ).all()
+                
+                if not user_files:
+                    raise ValueError("No processed data files found")
+                
+                data_source = user_files[0].extracted_data
+            else:
+                # Query against first available file
+                user_file = db.query(UploadedFile).filter(
+                    UploadedFile.user_id == user_id,
+                    UploadedFile.processing_status == "completed"
+                ).first()
+                
+                if not user_file:
+                    raise ValueError("No processed data files found")
+                
+                data_source = user_file.extracted_data
+            
+            # Execute query against the data
+            result = await self._execute_sql_on_data(sql, data_source)
+            
+            return result
+            
         except Exception as e:
             raise Exception(f"Query execution failed: {str(e)}")
     
-    def _process_revenue_by_period(self) -> Dict[str, Any]:
-        """Process revenue by time period queries"""
-        df = pd.DataFrame(self.mock_data)
-        monthly_revenue = df.groupby('month')['total'].sum().reset_index()
-        monthly_revenue = monthly_revenue.sort_values('month')
+    async def _execute_sql_on_data(self, sql: str, data_source: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute SQL on extracted data"""
         
-        data = [
-            {'period': row['month'], 'revenue': round(row['total'], 2)}
-            for _, row in monthly_revenue.iterrows()
-        ]
+        if data_source.get("type") != "tabular":
+            raise ValueError("Can only query tabular data")
         
-        return {
-            'data': data,
-            'columns': [
-                {'name': 'period', 'type': 'string'},
-                {'name': 'revenue', 'type': 'number'}
+        rows = data_source.get("rows", [])
+        if not rows:
+            raise ValueError("No data available to query")
+        
+        # Create DataFrame
+        df = pd.DataFrame(rows)
+        
+        # Create temporary SQLite database
+        conn = sqlite3.connect(":memory:")
+        
+        try:
+            # Load data into SQLite
+            df.to_sql("data", conn, if_exists="replace", index=False)
+            
+            # Execute SQL query
+            cursor = conn.cursor()
+            
+            # Replace common table references with 'data'
+            modified_sql = self._modify_sql_for_execution(sql)
+            
+            cursor.execute(modified_sql)
+            
+            # Get column names
+            columns = [description[0] for description in cursor.description]
+            
+            # Fetch results
+            rows = cursor.fetchall()
+            
+            # Convert to list of dictionaries
+            result_data = []
+            for row in rows:
+                result_data.append({
+                    columns[i]: self._convert_sql_value(row[i])
+                    for i in range(len(columns))
+                })
+            
+            # Prepare column metadata
+            column_metadata = [
+                {"name": col, "type": self._infer_column_type(result_data, col)}
+                for col in columns
             ]
-        }
-    
-    def _process_customer_segments(self) -> Dict[str, Any]:
-        """Process customer segment analysis"""
-        df = pd.DataFrame(self.mock_data)
-        segment_stats = df.groupby('customer_segment').agg({
-            'id': 'count',
-            'total': ['sum', 'mean']
-        }).reset_index()
-        
-        segment_stats.columns = ['segment', 'order_count', 'total_revenue', 'avg_order_value']
-        
-        data = [
-            {
-                'segment': row['segment'],
-                'order_count': int(row['order_count']),
-                'total_revenue': round(row['total_revenue'], 2),
-                'avg_order_value': round(row['avg_order_value'], 2)
+            
+            return {
+                "data": result_data,
+                "columns": column_metadata
             }
-            for _, row in segment_stats.iterrows()
+            
+        finally:
+            conn.close()
+    
+    def _modify_sql_for_execution(self, sql: str) -> str:
+        """Modify SQL query to work with our data table"""
+        
+        # Simple replacements for common table names
+        replacements = [
+            ("orders", "data"),
+            ("customers", "data"),
+            ("sales", "data"),
+            ("products", "data"),
+            ("uploaded_data", "data"),
+            ("main_table", "data")
         ]
         
-        return {
-            'data': data,
-            'columns': [
-                {'name': 'segment', 'type': 'string'},
-                {'name': 'order_count', 'type': 'number'},
-                {'name': 'total_revenue', 'type': 'number'},
-                {'name': 'avg_order_value', 'type': 'number'}
-            ]
-        }
+        modified_sql = sql
+        for old, new in replacements:
+            modified_sql = modified_sql.replace(old, new)
+        
+        return modified_sql
     
-    def _process_revenue_by_region(self) -> Dict[str, Any]:
-        """Process revenue by region"""
-        df = pd.DataFrame(self.mock_data)
-        region_revenue = df.groupby('region')['total'].sum().reset_index()
-        
-        data = [
-            {'region': row['region'], 'revenue': round(row['total'], 2)}
-            for _, row in region_revenue.iterrows()
-        ]
-        
-        return {
-            'data': data,
-            'columns': [
-                {'name': 'region', 'type': 'string'},
-                {'name': 'revenue', 'type': 'number'}
-            ]
-        }
+    def _convert_sql_value(self, value):
+        """Convert SQL result values to JSON-serializable types"""
+        if value is None:
+            return None
+        elif isinstance(value, (int, float, str, bool)):
+            return value
+        else:
+            return str(value)
     
-    def _process_basic_aggregation(self) -> Dict[str, Any]:
-        """Process basic aggregation queries"""
-        df = pd.DataFrame(self.mock_data)
+    def _infer_column_type(self, data: List[Dict], column: str) -> str:
+        """Infer column type from result data"""
+        if not data:
+            return "string"
         
-        total_revenue = df['total'].sum()
-        order_count = len(df)
-        avg_order_value = df['total'].mean()
+        sample_value = None
+        for row in data:
+            if row.get(column) is not None:
+                sample_value = row[column]
+                break
         
-        data = [{
-            'count': order_count,
-            'total_amount': round(total_revenue, 2),
-            'avg_amount': round(avg_order_value, 2)
-        }]
-        
-        return {
-            'data': data,
-            'columns': [
-                {'name': 'count', 'type': 'number'},
-                {'name': 'total_amount', 'type': 'number'},
-                {'name': 'avg_amount', 'type': 'number'}
-            ]
-        }
+        if sample_value is None:
+            return "string"
+        elif isinstance(sample_value, bool):
+            return "boolean"
+        elif isinstance(sample_value, int):
+            return "integer"
+        elif isinstance(sample_value, float):
+            return "number"
+        else:
+            return "string"
