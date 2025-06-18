@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { Brain, Mail, Lock, User, AlertCircle, Eye, EyeOff, CheckCircle } from 'lucide-react';
 
-interface SignupProps {
-  onSignup: (email: string, password: string, fullName: string) => Promise<void>;
-  onSwitchToLogin: () => void;
-}
-
-const Signup: React.FC<SignupProps> = ({ onSignup, onSwitchToLogin }) => {
+const Signup: React.FC = () => {
+  const navigate = useNavigate();
+  const { signup } = useAuth();
+  
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -99,7 +99,8 @@ const Signup: React.FC<SignupProps> = ({ onSignup, onSwitchToLogin }) => {
     setIsLoading(true);
 
     try {
-      await onSignup(formData.email, formData.password, formData.fullName);
+      await signup(formData.email, formData.password, formData.fullName);
+      navigate('/dashboard');
     } catch (error: any) {
       setError(error.message || 'Signup failed. Please try again.');
     } finally {
@@ -136,7 +137,7 @@ const Signup: React.FC<SignupProps> = ({ onSignup, onSwitchToLogin }) => {
 
         {/* Signup Form */}
         <div className="bg-white dark:bg-gray-800 py-8 px-6 shadow-xl rounded-lg border border-gray-200 dark:border-gray-700">
-          <div className="space-y-6">
+          <form className="space-y-6" onSubmit={handleSubmit}>
             {error && (
               <div className="bg-red-50 dark:bg-red-900/50 border border-red-200 dark:border-red-800 rounded-lg p-4 flex items-center space-x-3">
                 <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
@@ -298,11 +299,11 @@ const Signup: React.FC<SignupProps> = ({ onSignup, onSwitchToLogin }) => {
               />
               <label htmlFor="terms" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
                 I agree to the{' '}
-                <button className="text-purple-600 hover:text-purple-500 dark:text-purple-400">
+                <button type="button" className="text-purple-600 hover:text-purple-500 dark:text-purple-400">
                   Terms of Service
                 </button>{' '}
                 and{' '}
-                <button className="text-purple-600 hover:text-purple-500 dark:text-purple-400">
+                <button type="button" className="text-purple-600 hover:text-purple-500 dark:text-purple-400">
                   Privacy Policy
                 </button>
               </label>
@@ -312,7 +313,6 @@ const Signup: React.FC<SignupProps> = ({ onSignup, onSwitchToLogin }) => {
               <button
                 type="submit"
                 disabled={isLoading || !isPasswordValid || !doPasswordsMatch}
-                onClick={handleSubmit}
                 className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition duration-200"
               >
                 {isLoading ? (
@@ -329,15 +329,15 @@ const Signup: React.FC<SignupProps> = ({ onSignup, onSwitchToLogin }) => {
             <div className="text-center">
               <span className="text-sm text-gray-600 dark:text-gray-400">
                 Already have an account?{' '}
-                <button
-                  onClick={onSwitchToLogin}
+                <Link
+                  to="/login"
                   className="font-medium text-purple-600 hover:text-purple-500 dark:text-purple-400"
                 >
                   Sign in here
-                </button>
+                </Link>
               </span>
             </div>
-          </div>
+          </form>
         </div>
       </div>
     </div>

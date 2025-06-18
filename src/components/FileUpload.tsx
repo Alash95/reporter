@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, File, CheckCircle, AlertCircle, Clock, X, Eye, Sparkles } from 'lucide-react';
+import { Upload, File, CheckCircle, AlertCircle, Clock, X, Eye, Sparkles, Download, BarChart3 } from 'lucide-react';
 import { useAuthenticatedFetch } from '../contexts/AuthContext';
 
 interface UploadedFile {
@@ -12,12 +12,40 @@ interface UploadedFile {
   has_semantic_model: boolean;
 }
 
+interface PreviewData {
+  type: 'tabular' | 'text' | 'analysis';
+  columns?: Array<{ name: string; type: string }>;
+  rows?: Array<Record<string, any>>;
+  content?: string;
+  preview_note?: string;
+  row_count?: number;
+  column_count?: number;
+  file_info?: Record<string, any>;
+  // Analysis specific fields
+  summary?: {
+    row_count: number;
+    column_count: number;
+    missing_values: Record<string, number>;
+    data_types: Record<string, string>;
+  };
+  insights?: string[];
+  recommended_visualizations?: Array<{
+    type?: string;
+    name?: string;
+    description?: string;
+    reason?: string;
+  }>;
+  data_quality?: Record<string, any>;
+  suggested_questions?: string[];
+}
+
 const FileUpload: React.FC = () => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragActive, setIsDragActive] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<any>(null);
-  const [previewData, setPreviewData] = useState<any>(null);
+  const [selectedFile, setSelectedFile] = useState<UploadedFile | null>(null);
+  const [previewData, setPreviewData] = useState<PreviewData | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{[key: string]: number}>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const authenticatedFetch = useAuthenticatedFetch();
 
@@ -35,6 +63,9 @@ const FileUpload: React.FC = () => {
 
   useEffect(() => {
     fetchUploadedFiles();
+    // Poll for updates every 5 seconds
+    const interval = setInterval(fetchUploadedFiles, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchUploadedFiles = async () => {
@@ -94,18 +125,28 @@ const FileUpload: React.FC = () => {
           continue;
         }
 
+        // Create a unique ID for progress tracking
+        const fileId = `${Date.now()}-${file.name}`;
+        setUploadProgress(prev => ({ ...prev, [fileId]: 0 }));
+
         const formData = new FormData();
         formData.append('file', file);
         
         const response = await authenticatedFetch('http://localhost:8000/api/files/upload', {
           method: 'POST',
-          headers: {}, // Don't set Content-Type for FormData
           body: formData,
         });
         
         if (response.ok) {
           const result = await response.json();
           console.log('File uploaded successfully:', result);
+          
+          // Remove from progress tracking
+          setUploadProgress(prev => {
+            const newProgress = { ...prev };
+            delete newProgress[fileId];
+            return newProgress;
+          });
           
           // Refresh the file list
           await fetchUploadedFiles();
@@ -159,6 +200,9 @@ const FileUpload: React.FC = () => {
           if (status.status === 'processing' && attempts < maxAttempts) {
             attempts++;
             setTimeout(poll, 2000); // Poll every 2 seconds
+          } else if (status.status === 'completed') {
+            // Refresh the full list to get updated data
+            fetchUploadedFiles();
           }
         }
       } catch (error) {
@@ -170,6 +214,10 @@ const FileUpload: React.FC = () => {
   };
 
   const removeFile = async (fileId: string) => {
+    if (!confirm('Are you sure you want to delete this file?')) {
+      return;
+    }
+
     try {
       const response = await authenticatedFetch(`http://localhost:8000/api/files/${fileId}`, {
         method: 'DELETE'
@@ -180,6 +228,7 @@ const FileUpload: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to delete file:', error);
+      alert('Failed to delete file. Please try again.');
     }
   };
 
@@ -189,10 +238,14 @@ const FileUpload: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         setPreviewData(data);
-        setSelectedFile(uploadedFiles.find(f => f.id === fileId));
+        setSelectedFile(uploadedFiles.find(f => f.id === fileId) || null);
+      } else {
+        const error = await response.json();
+        alert(`Failed to preview file: ${error.detail || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Failed to preview file:', error);
+      alert('Failed to preview file. Please try again.');
     }
   };
 
@@ -203,6 +256,9 @@ const FileUpload: React.FC = () => {
     try {
       const response = await authenticatedFetch('http://localhost:8000/api/ai/generate-dashboard', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           problem_statement: problemStatement,
           file_id: fileId,
@@ -212,7 +268,7 @@ const FileUpload: React.FC = () => {
 
       if (response.ok) {
         const result = await response.json();
-        alert(`Dashboard generated successfully! Dashboard ID: ${result.dashboard_id}`);
+        alert(`Dashboard generated successfully! Dashboard ID: ${result.dashboard_id}\n\nInsights generated: ${result.insights?.length || 0}`);
       } else {
         const error = await response.json();
         alert(`Failed to generate dashboard: ${error.detail}`);
@@ -220,6 +276,34 @@ const FileUpload: React.FC = () => {
     } catch (error) {
       console.error('Failed to generate dashboard:', error);
       alert('Failed to generate dashboard. Please try again.');
+    }
+  };
+
+  const analyzeFile = async (fileId: string) => {
+    try {
+      const response = await authenticatedFetch(`http://localhost:8000/api/ai/analyze-data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ file_id: fileId }),
+      });
+
+      if (response.ok) {
+        const analysis = await response.json();
+        // Mark this as analysis data
+        setPreviewData({
+          type: 'analysis',
+          ...analysis
+        });
+        setSelectedFile(uploadedFiles.find(f => f.id === fileId) || null);
+      } else {
+        const error = await response.json();
+        alert(`Failed to analyze file: ${error.detail}`);
+      }
+    } catch (error) {
+      console.error('Failed to analyze file:', error);
+      alert('Failed to analyze file. Please try again.');
     }
   };
 
@@ -243,6 +327,21 @@ const FileUpload: React.FC = () => {
       default:
         return <File className="h-5 w-5 text-gray-500" />;
     }
+  };
+
+  const downloadResults = (data: any[], filename: string) => {
+    const csv = [
+      Object.keys(data[0]).join(','),
+      ...data.map(row => Object.values(row).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${filename}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -295,6 +394,20 @@ const FileUpload: React.FC = () => {
             <p className="text-gray-600 dark:text-gray-400">
               Please wait while we process your files
             </p>
+            {Object.keys(uploadProgress).length > 0 && (
+              <div className="mt-4 space-y-2">
+                {Object.entries(uploadProgress).map(([fileId, progress]) => (
+                  <div key={fileId} className="max-w-xs mx-auto">
+                    <div className="bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div 
+                        className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -318,7 +431,7 @@ const FileUpload: React.FC = () => {
         )}
       </div>
 
-      {/* Rest of the component remains the same */}
+      {/* Files List */}
       {uploadedFiles.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
@@ -375,11 +488,18 @@ const FileUpload: React.FC = () => {
                         <Eye className="h-4 w-4" />
                       </button>
                       <button
+                        onClick={() => analyzeFile(file.id)}
+                        className="p-2 text-green-500 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/50 rounded-lg transition-colors"
+                        title="Analyze with AI"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                      </button>
+                      <button
                         onClick={() => generateDashboard(file.id)}
                         className="p-2 text-purple-500 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/50 rounded-lg transition-colors"
                         title="Generate AI Dashboard"
                       >
-                        <Sparkles className="h-4 w-4" />
+                        <BarChart3 className="h-4 w-4" />
                       </button>
                     </>
                   )}
@@ -397,79 +517,169 @@ const FileUpload: React.FC = () => {
         </div>
       )}
 
-      {/* File Preview Modal */}
+      {/* File Preview/Analysis Modal */}
       {selectedFile && previewData && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg max-w-6xl w-full max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Preview: {selectedFile.filename}
+                {previewData.type === 'analysis' ? 'AI Analysis: ' : 'Preview: '} {selectedFile.filename}
               </h3>
-              <button
-                onClick={() => {
-                  setSelectedFile(null);
-                  setPreviewData(null);
-                }}
-                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center space-x-2">
+                {previewData.type === 'analysis' && previewData.summary && (
+                  <button
+                    onClick={() => downloadResults([previewData.summary!], `analysis-${selectedFile.filename}`)}
+                    className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                    title="Download Analysis"
+                  >
+                    <Download className="h-5 w-5" />
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setSelectedFile(null);
+                    setPreviewData(null);
+                  }}
+                  className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
             
             <div className="p-6 overflow-auto max-h-[70vh]">
-              {previewData.columns && previewData.rows && (
-                <div>
-                  <div className="mb-4 text-sm text-gray-600 dark:text-gray-400">
-                    {previewData.rows.length} rows × {previewData.columns.length} columns
-                    {previewData.preview_note && (
-                      <span className="ml-2 text-orange-600 dark:text-orange-400">
-                        ({previewData.preview_note})
-                      </span>
-                    )}
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                      <thead className="bg-gray-50 dark:bg-gray-700">
-                        <tr>
-                          {previewData.columns.map((col: any, index: number) => (
-                            <th
-                              key={index}
-                              className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider"
-                            >
-                              {typeof col === 'string' ? col : col.name}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                        {previewData.rows.slice(0, 20).map((row: any, rowIndex: number) => (
-                          <tr key={rowIndex}>
-                            {previewData.columns.map((col: any, colIndex: number) => {
-                              const colName = typeof col === 'string' ? col : col.name;
-                              return (
-                                <td
-                                  key={colIndex}
-                                  className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100"
-                                >
-                                  {row[colName] ?? 'N/A'}
-                                </td>
-                              );
-                            })}
-                          </tr>
+              {previewData.type === 'analysis' ? (
+                <div className="space-y-6">
+                  {/* Summary */}
+                  {previewData.summary && (
+                    <div>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Summary</h4>
+                      <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <span className="font-medium text-gray-700 dark:text-gray-300">Rows:</span>
+                            <div className="text-gray-900 dark:text-white">{previewData.summary.row_count?.toLocaleString()}</div>
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-700 dark:text-gray-300">Columns:</span>
+                            <div className="text-gray-900 dark:text-white">{previewData.summary.column_count}</div>
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-700 dark:text-gray-300">Missing Values:</span>
+                            <div className="text-gray-900 dark:text-white">
+                              {Object.values(previewData.summary.missing_values || {}).reduce((a: any, b: any) => a + b, 0)}
+                            </div>
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-700 dark:text-gray-300">Data Types:</span>
+                            <div className="text-gray-900 dark:text-white">
+                              {Object.keys(previewData.summary.data_types || {}).length} types
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Insights */}
+                  {previewData.insights && previewData.insights.length > 0 && (
+                    <div>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Key Insights</h4>
+                      <div className="space-y-3">
+                        {previewData.insights.map((insight: string, index: number) => (
+                          <div key={index} className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg border-l-4 border-green-400">
+                            <p className="text-sm text-gray-700 dark:text-gray-300">{insight}</p>
+                          </div>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recommendations */}
+                  {previewData.recommended_visualizations && previewData.recommended_visualizations.length > 0 && (
+                    <div>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Recommended Visualizations</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {previewData.recommended_visualizations.map((viz, index: number) => (
+                          <div key={index} className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded-lg">
+                            <h5 className="font-medium text-purple-900 dark:text-purple-300">{viz.type || viz.name}</h5>
+                            <p className="text-sm text-purple-700 dark:text-purple-400 mt-1">{viz.description || viz.reason}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Suggested Questions */}
+                  {previewData.suggested_questions && previewData.suggested_questions.length > 0 && (
+                    <div>
+                      <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Suggested Questions</h4>
+                      <div className="space-y-2">
+                        {previewData.suggested_questions.map((question: string, index: number) => (
+                          <div key={index} className="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
+                            <p className="text-sm text-gray-700 dark:text-gray-300">❓ {question}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-              
-              {previewData.content && (
-                <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
-                  <pre className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200">
-                    {previewData.content.substring(0, 2000)}
-                    {previewData.content.length > 2000 && '...'}
-                  </pre>
-                </div>
+              ) : (
+                /* Regular Data Preview */
+                <>
+                  {previewData.columns && previewData.rows && (
+                    <div>
+                      <div className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+                        {previewData.rows.length} rows × {previewData.columns.length} columns
+                        {previewData.preview_note && (
+                          <span className="ml-2 text-orange-600 dark:text-orange-400">
+                            ({previewData.preview_note})
+                          </span>
+                        )}
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                          <thead className="bg-gray-50 dark:bg-gray-700">
+                            <tr>
+                              {previewData.columns.map((col, index: number) => (
+                                <th
+                                  key={index}
+                                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider"
+                                >
+                                  {col.name}
+                                  <span className="ml-1 text-xs text-gray-400">({col.type})</span>
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                            {previewData.rows.slice(0, 20).map((row, rowIndex: number) => (
+                              <tr key={rowIndex}>
+                                {previewData.columns!.map((col, colIndex: number) => (
+                                  <td
+                                    key={colIndex}
+                                    className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100"
+                                  >
+                                    {row[col.name] !== null && row[col.name] !== undefined ? String(row[col.name]) : 'N/A'}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {previewData.content && (
+                    <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
+                      <pre className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200">
+                        {previewData.content.substring(0, 2000)}
+                        {previewData.content.length > 2000 && '...'}
+                      </pre>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>

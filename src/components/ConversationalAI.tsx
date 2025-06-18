@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { Send, Bot, User, Sparkles, Clock, Copy, Download, BarChart3 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import Plot from 'react-plotly.js';
+import { useAuthenticatedFetch } from '../contexts/AuthContext';
+import { Send, Bot, User, Sparkles, Clock, Copy, Download, Code, FileText } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -14,11 +12,13 @@ interface Message {
     chart?: any;
     data?: any[];
     insights?: string[];
+    visualizations?: any[];
+    analysis?: any;
   };
 }
 
 const ConversationalAI: React.FC = () => {
-  const { token } = useAuth();
+  const authenticatedFetch = useAuthenticatedFetch();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -29,12 +29,14 @@ const ConversationalAI: React.FC = () => {
 🔍 **Generate SQL queries** - Convert natural language to optimized queries  
 📈 **Create visualizations** - Automatically generate charts and graphs
 💡 **Provide insights** - Get AI-powered recommendations and summaries
+🤖 **Conversational analysis** - Have natural conversations about your data
 
 Try asking me something like:
 - "Show me the sales trend over the last 6 months"
 - "What are the top performing products?"
 - "Create a chart comparing revenue by region"
 - "Analyze customer segments and their behavior"
+- "Generate insights from my latest uploaded file"
 
 What would you like to explore today?`,
       timestamp: new Date()
@@ -59,13 +61,11 @@ What would you like to explore today?`,
 
   const fetchAvailableData = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/files/', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      const files = await response.json();
-      setAvailableData(files.filter((f: any) => f.processing_status === 'completed'));
+      const response = await authenticatedFetch('http://localhost:8000/api/files/');
+      if (response.ok) {
+        const files = await response.json();
+        setAvailableData(files.filter((f: any) => f.processing_status === 'completed'));
+      }
     } catch (error) {
       console.error('Failed to fetch available data:', error);
     }
@@ -82,60 +82,134 @@ What would you like to explore today?`,
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = input;
     setInput('');
     setIsLoading(true);
 
     try {
-      // Send to AI assistant
-      const response = await fetch('http://localhost:8000/api/ai/conversation', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          message: input,
-          context: {
-            available_data: availableData,
-            conversation_history: messages.slice(-5) // Last 5 messages for context
-          }
-        }),
-      });
+      // Check if the input looks like it's asking for SQL generation
+      const isQueryRequest = /\b(query|sql|select|show|get|find|list|count|sum|average|max|min)\b/i.test(currentInput);
+      
+      if (isQueryRequest) {
+        // Try to generate a SQL query first
+        const queryResponse = await authenticatedFetch('http://localhost:8000/api/ai/query', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            prompt: currentInput,
+            model_id: 'ecommerce'
+          }),
+        });
 
-      if (response.ok) {
-        const result = await response.json();
-        
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: result.response,
-          timestamp: new Date(),
-          metadata: {
-            query: result.generated_query,
-            chart: result.suggested_chart,
-            data: result.data,
-            insights: result.insights
-          }
-        };
+        if (queryResponse.ok) {
+          const queryResult = await queryResponse.json();
+          
+          // Execute the generated query
+          const executeResponse = await authenticatedFetch('http://localhost:8000/api/queries/execute', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              sql: queryResult.sql,
+              model_id: 'ecommerce'
+            }),
+          });
 
-        setMessages(prev => [...prev, assistantMessage]);
+          if (executeResponse.ok) {
+            const executeResult = await executeResponse.json();
+            
+            const assistantMessage: Message = {
+              id: (Date.now() + 1).toString(),
+              role: 'assistant',
+              content: `I've generated and executed a SQL query based on your request. Here are the results:
+
+**Query Explanation:** ${queryResult.explanation}
+
+The query returned ${executeResult.row_count} rows in ${executeResult.execution_time}ms.`,
+              timestamp: new Date(),
+              metadata: {
+                query: queryResult.sql,
+                data: executeResult.data,
+                insights: [`Query executed successfully with ${executeResult.row_count} results`, `Execution time: ${executeResult.execution_time}ms`]
+              }
+            };
+
+            setMessages(prev => [...prev, assistantMessage]);
+          } else {
+            throw new Error('Failed to execute query');
+          }
+        } else {
+          throw new Error('Failed to generate query');
+        }
       } else {
-        throw new Error('Failed to get AI response');
+        // Use conversational AI
+        const response = await authenticatedFetch('http://localhost:8000/api/ai/conversation', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: currentInput,
+            context: {
+              available_data: availableData,
+              conversation_history: messages.slice(-5) // Last 5 messages for context
+            }
+          }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          
+          const assistantMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant',
+            content: result.response,
+            timestamp: new Date(),
+            metadata: {
+              query: result.generated_query,
+              chart: result.suggested_chart,
+              data: result.data,
+              insights: result.insights,
+              analysis: result.analysis
+            }
+          };
+
+          setMessages(prev => [...prev, assistantMessage]);
+        } else {
+          throw new Error('Failed to get AI response');
+        }
       }
     } catch (error) {
-      // Fallback response
+      console.error('Error sending message:', error);
+      
+      // Fallback response with helpful suggestions
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: `I apologize, but I'm having trouble processing your request right now. Here are some things you can try:
 
-🔄 **Refresh and try again** - Sometimes a simple refresh helps
+🔄 **Try again** - Sometimes a simple retry helps
 📁 **Check your data** - Make sure you have uploaded and processed data files
 💬 **Rephrase your question** - Try asking in a different way
-🛠️ **Use the Query Builder** - For complex queries, try the manual query builder
+🛠️ **Use specific requests** - Try queries like:
+   - "Show me my data summary"
+   - "Generate a revenue chart" 
+   - "What insights can you find in my data?"
 
-Is there anything specific about your data you'd like to explore?`,
-        timestamp: new Date()
+**Available data sources:** ${availableData.length} file(s) uploaded
+
+Would you like me to help you explore any specific aspect of your data?`,
+        timestamp: new Date(),
+        metadata: {
+          insights: [
+            `You have ${availableData.length} data files available`,
+            'Try being more specific in your questions',
+            'I can help with SQL queries, data analysis, and visualizations'
+          ]
+        }
       };
 
       setMessages(prev => [...prev, errorMessage]);
@@ -170,19 +244,63 @@ Is there anything specific about your data you'd like to explore?`,
     URL.revokeObjectURL(url);
   };
 
+  const executeQuery = async (sql: string) => {
+    try {
+      const response = await authenticatedFetch('http://localhost:8000/api/queries/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sql,
+          model_id: 'ecommerce'
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        
+        const resultMessage: Message = {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `Query executed successfully! Returned ${result.row_count} rows in ${result.execution_time}ms.`,
+          timestamp: new Date(),
+          metadata: {
+            data: result.data,
+            insights: [`${result.row_count} rows returned`, `Execution time: ${result.execution_time}ms`]
+          }
+        };
+
+        setMessages(prev => [...prev, resultMessage]);
+      } else {
+        const error = await response.json();
+        throw new Error(error.detail || 'Query execution failed');
+      }
+    } catch (error) {
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: `Failed to execute query: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date()
+      };
+
+      setMessages(prev => [...prev, errorMessage]);
+    }
+  };
+
   const suggestedQuestions = [
     "What are the key trends in my data?",
-    "Show me a summary of sales performance",
-    "Create a chart of revenue by month",
+    "Show me a summary of performance metrics",
+    "Create a chart showing monthly trends",
     "What insights can you find in my customer data?",
-    "Compare performance across different regions",
-    "Identify any anomalies or outliers"
+    "Compare performance across different categories",
+    "Find any anomalies or outliers in the data"
   ];
 
   return (
     <div className="flex flex-col h-[calc(100vh-120px)]">
       {/* Header */}
-      <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
         <div className="flex items-center space-x-3">
           <div className="h-10 w-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
             <Sparkles className="h-6 w-6 text-white" />
@@ -197,14 +315,19 @@ Is there anything specific about your data you'd like to explore?`,
           </div>
         </div>
         
-        <div className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
-          <div className="h-2 w-2 bg-green-500 rounded-full"></div>
-          <span>AI Online</span>
+        <div className="flex items-center space-x-4">
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            {availableData.length} data source(s) available
+          </div>
+          <div className="flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
+            <div className="h-2 w-2 bg-green-500 rounded-full"></div>
+            <span>AI Online</span>
+          </div>
         </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gray-50 dark:bg-gray-900">
         {messages.map((message) => (
           <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-4xl ${message.role === 'user' ? 'order-2' : 'order-1'}`}>
@@ -225,15 +348,11 @@ Is there anything specific about your data you'd like to explore?`,
                   <div className={`inline-block px-4 py-3 rounded-2xl max-w-none ${
                     message.role === 'user'
                       ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                      : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700'
                   }`}>
-                    {message.role === 'assistant' ? (
-                      <ReactMarkdown className="prose prose-sm dark:prose-invert max-w-none">
-                        {message.content}
-                      </ReactMarkdown>
-                    ) : (
-                      <p className="text-sm">{message.content}</p>
-                    )}
+                    <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">
+                      {message.content}
+                    </div>
                   </div>
                   
                   {/* Metadata (Charts, Queries, etc.) */}
@@ -243,15 +362,27 @@ Is there anything specific about your data you'd like to explore?`,
                       {message.metadata.query && (
                         <div className="bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                           <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                            <h4 className="text-sm font-medium text-gray-900 dark:text-white">
-                              Generated SQL Query
-                            </h4>
-                            <button
-                              onClick={() => copyToClipboard(message.metadata!.query!)}
-                              className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                            >
-                              <Copy className="h-4 w-4" />
-                            </button>
+                            <div className="flex items-center space-x-2">
+                              <Code className="h-4 w-4 text-gray-500" />
+                              <h4 className="text-sm font-medium text-gray-900 dark:text-white">
+                                Generated SQL Query
+                              </h4>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => copyToClipboard(message.metadata!.query!)}
+                                className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                title="Copy query"
+                              >
+                                <Copy className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => executeQuery(message.metadata!.query!)}
+                                className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
+                              >
+                                Execute
+                              </button>
+                            </div>
                           </div>
                           <pre className="p-4 text-sm bg-gray-900 text-green-400 overflow-x-auto">
                             {message.metadata.query}
@@ -259,30 +390,16 @@ Is there anything specific about your data you'd like to explore?`,
                         </div>
                       )}
                       
-                      {/* Chart */}
-                      {message.metadata.chart && (
-                        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-                          <Plot
-                            data={message.metadata.chart.data}
-                            layout={{
-                              ...message.metadata.chart.layout,
-                              autosize: true,
-                              paper_bgcolor: 'transparent',
-                              plot_bgcolor: 'transparent'
-                            }}
-                            style={{ width: '100%', height: '400px' }}
-                            config={{ responsive: true }}
-                          />
-                        </div>
-                      )}
-                      
                       {/* Data Table */}
                       {message.metadata.data && message.metadata.data.length > 0 && (
                         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                           <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                            <h4 className="text-sm font-medium text-gray-900 dark:text-white">
-                              Data Results ({message.metadata.data.length} rows)
-                            </h4>
+                            <div className="flex items-center space-x-2">
+                              <FileText className="h-4 w-4 text-gray-500" />
+                              <h4 className="text-sm font-medium text-gray-900 dark:text-white">
+                                Data Results ({message.metadata.data.length} rows)
+                              </h4>
+                            </div>
                             <button
                               onClick={() => downloadData(message.metadata!.data!, 'query-results')}
                               className="flex items-center space-x-1 px-2 py-1 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -327,8 +444,9 @@ Is there anything specific about your data you'd like to explore?`,
                       {/* Insights */}
                       {message.metadata.insights && message.metadata.insights.length > 0 && (
                         <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 p-4">
-                          <h4 className="text-sm font-medium text-blue-900 dark:text-blue-300 mb-2">
-                            💡 Key Insights
+                          <h4 className="text-sm font-medium text-blue-900 dark:text-blue-300 mb-2 flex items-center space-x-2">
+                            <Sparkles className="h-4 w-4" />
+                            <span>Key Insights</span>
                           </h4>
                           <ul className="space-y-1 text-sm text-blue-800 dark:text-blue-200">
                             {message.metadata.insights.map((insight, index) => (
@@ -361,7 +479,7 @@ Is there anything specific about your data you'd like to explore?`,
                   <Bot className="h-4 w-4 text-white" />
                 </div>
                 <div className="flex-1">
-                  <div className="inline-block px-4 py-3 rounded-2xl bg-gray-100 dark:bg-gray-700">
+                  <div className="inline-block px-4 py-3 rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
                     <div className="flex space-x-1">
                       <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
                       <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
@@ -379,7 +497,7 @@ Is there anything specific about your data you'd like to explore?`,
 
       {/* Suggested Questions */}
       {messages.length === 1 && (
-        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Try these sample questions:</p>
           <div className="flex flex-wrap gap-2">
             {suggestedQuestions.map((question, index) => (
@@ -396,7 +514,7 @@ Is there anything specific about your data you'd like to explore?`,
       )}
 
       {/* Input */}
-      <div className="p-6 border-t border-gray-200 dark:border-gray-700">
+      <div className="p-6 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
         <div className="flex space-x-4">
           <div className="flex-1">
             <textarea
