@@ -27,3 +27,6 @@ dist-ssr
 venv/
 package-lock.json
 package.json
+backend.zip
+src.zip
+.bolt/

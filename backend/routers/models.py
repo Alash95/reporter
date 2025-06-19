@@ -4,6 +4,7 @@ from typing import List
 
 from database import get_db
 from models import SemanticModel
+
 from schemas import SemanticModel as SemanticModelSchema, SemanticModelCreate
 
 router = APIRouter()
