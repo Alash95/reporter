@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, File, CheckCircle, AlertCircle, Clock, X, Eye, Sparkles, Download, BarChart3 } from 'lucide-react';
+import { Upload, File, CheckCircle, AlertCircle, Clock, X, Eye, Sparkles, Download, BarChart3, RefreshCw } from 'lucide-react';
 import { useAuthenticatedFetch } from '../contexts/AuthContext';
 
 interface UploadedFile {
@@ -39,6 +39,22 @@ interface PreviewData {
   suggested_questions?: string[];
 }
 
+  const downloadResults = (data: any[], filename: string) => {
+    const csv = [
+      Object.keys(data[0]).join(','),
+      ...data.map(row => Object.values(row).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${filename}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  
+
 const FileUpload: React.FC = () => {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragActive, setIsDragActive] = useState(false);
@@ -63,10 +79,27 @@ const FileUpload: React.FC = () => {
 
   useEffect(() => {
     fetchUploadedFiles();
-    // Poll for updates every 5 seconds
-    const interval = setInterval(fetchUploadedFiles, 5000);
-    return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    // Only set up auto-refresh if there are actually processing files
+    const hasProcessingFiles = uploadedFiles.some(
+      file => file.processing_status === 'pending' || file.processing_status === 'processing'
+    );
+    
+    if (hasProcessingFiles) {
+      console.log('Setting up auto-refresh for processing files');
+      const interval = setInterval(() => {
+        console.log('Auto-refreshing files due to processing files');
+        fetchUploadedFiles();
+      }, 5000);
+      
+      return () => {
+        console.log('Clearing auto-refresh interval');
+        clearInterval(interval);
+      };
+    }
+  }, [uploadedFiles.map(f => f.processing_status).join(',')]); // Only re-run when statuses change
 
   const fetchUploadedFiles = async () => {
     try {
@@ -110,9 +143,12 @@ const FileUpload: React.FC = () => {
     if (isUploading) return;
     
     setIsUploading(true);
+    console.log(`Starting to process ${files.length} files`);
     
     for (const file of files) {
       try {
+        console.log(`Processing file: ${file.name}, size: ${file.size}, type: ${file.type}`);
+        
         // Validate file type
         if (!ALLOWED_TYPES.includes(file.type)) {
           alert(`File type ${file.type} not supported. Please upload CSV, Excel, PDF, Word, Text, or JSON files.`);
@@ -132,6 +168,7 @@ const FileUpload: React.FC = () => {
         const formData = new FormData();
         formData.append('file', file);
         
+        console.log(`Uploading file: ${file.name}`);
         const response = await authenticatedFetch('http://localhost:8000/api/files/upload', {
           method: 'POST',
           body: formData,
@@ -148,15 +185,23 @@ const FileUpload: React.FC = () => {
             return newProgress;
           });
           
-          // Refresh the file list
+          // Refresh the file list immediately
           await fetchUploadedFiles();
           
-          // Poll for processing status
+          // Start polling for processing status
+          console.log(`Starting status polling for file: ${result.file_id}`);
           pollProcessingStatus(result.file_id);
         } else {
           const errorData = await response.json();
           console.error('Upload failed:', errorData);
           alert(`Upload failed: ${errorData.detail || 'Unknown error'}`);
+          
+          // Remove from progress tracking
+          setUploadProgress(prev => {
+            const newProgress = { ...prev };
+            delete newProgress[fileId];
+            return newProgress;
+          });
         }
       } catch (error) {
         console.error('Upload error:', error);
@@ -165,6 +210,7 @@ const FileUpload: React.FC = () => {
     }
     
     setIsUploading(false);
+    console.log('Finished processing all files');
   };
 
   const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -178,7 +224,7 @@ const FileUpload: React.FC = () => {
   };
 
   const pollProcessingStatus = async (fileId: string) => {
-    const maxAttempts = 30;
+    const maxAttempts = 60; // Increased attempts
     let attempts = 0;
     
     const poll = async () => {
@@ -187,8 +233,9 @@ const FileUpload: React.FC = () => {
         
         if (response.ok) {
           const status = await response.json();
+          console.log(`File ${fileId} status: ${status.status}, attempt: ${attempts + 1}`);
           
-          // Update the file in the list
+          // Update the file in the list immediately
           setUploadedFiles(prev => 
             prev.map(f => 
               f.id === fileId 
@@ -197,20 +244,45 @@ const FileUpload: React.FC = () => {
             )
           );
           
-          if (status.status === 'processing' && attempts < maxAttempts) {
+          if ((status.status === 'pending' || status.status === 'processing') && attempts < maxAttempts) {
             attempts++;
             setTimeout(poll, 2000); // Poll every 2 seconds
           } else if (status.status === 'completed') {
+            console.log(`File ${fileId} processing completed successfully`);
             // Refresh the full list to get updated data
-            fetchUploadedFiles();
+            await fetchUploadedFiles();
+          } else if (status.status === 'failed') {
+            console.log(`File ${fileId} processing failed`);
+            await fetchUploadedFiles();
+          } else if (attempts >= maxAttempts) {
+            console.log(`Polling timeout for file ${fileId}, marking as failed`);
+            // Mark as failed due to timeout
+            setUploadedFiles(prev => 
+              prev.map(f => 
+                f.id === fileId 
+                  ? { ...f, processing_status: 'failed' }
+                  : f
+              )
+            );
+          }
+        } else {
+          console.error(`Status check failed for file ${fileId}:`, response.status);
+          if (attempts < maxAttempts) {
+            attempts++;
+            setTimeout(poll, 5000); // Longer delay on error
           }
         }
       } catch (error) {
         console.error('Error polling status:', error);
+        if (attempts < maxAttempts) {
+          attempts++;
+          setTimeout(poll, 5000); // Longer delay on error
+        }
       }
     };
     
-    poll();
+    // Start polling after a small delay
+    setTimeout(poll, 1000); // 1 second initial delay
   };
 
   const removeFile = async (fileId: string) => {
@@ -318,6 +390,7 @@ const FileUpload: React.FC = () => {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'pending':
+        return <Clock className="h-5 w-5 text-blue-500 animate-pulse" />;
       case 'processing':
         return <Clock className="h-5 w-5 text-blue-500 animate-spin" />;
       case 'completed':
@@ -329,19 +402,86 @@ const FileUpload: React.FC = () => {
     }
   };
 
-  const downloadResults = (data: any[], filename: string) => {
-    const csv = [
-      Object.keys(data[0]).join(','),
-      ...data.map(row => Object.values(row).join(','))
-    ].join('\n');
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'Queued...';
+      case 'processing':
+        return 'Processing...';
+      case 'completed':
+        return 'Ready';
+      case 'failed':
+        return 'Failed';
+      default:
+        return 'Unknown';
+    }
+  };
 
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${filename}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300';
+      case 'processing':
+        return 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 animate-pulse';
+      case 'completed':
+        return 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300';
+      case 'failed':
+        return 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300';
+      default:
+        return 'bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300';
+    }
+  };
+
+  const resetStuckFiles = async () => {
+    try {
+      const response = await authenticatedFetch('http://localhost:8000/api/files/reset-stuck-files', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        alert(result.message);
+        await fetchUploadedFiles();
+      } else {
+        const error = await response.json();
+        alert(`Failed to reset stuck files: ${error.detail}`);
+      }
+    } catch (error) {
+      console.error('Failed to reset stuck files:', error);
+      alert('Failed to reset stuck files. Please try again.');
+    }
+  };
+
+  const reprocessFile = async (fileId: string) => {
+    if (!confirm('Are you sure you want to reprocess this file?')) {
+      return;
+    }
+
+    try {
+      const response = await authenticatedFetch(`http://localhost:8000/api/files/${fileId}/reprocess`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        alert(result.message);
+        await fetchUploadedFiles();
+        // Start polling for the reprocessed file
+        pollProcessingStatus(fileId);
+      } else {
+        const error = await response.json();
+        alert(`Failed to reprocess file: ${error.detail}`);
+      }
+    } catch (error) {
+      console.error('Failed to reprocess file:', error);
+      alert('Failed to reprocess file. Please try again.');
+    }
   };
 
   return (
@@ -355,8 +495,26 @@ const FileUpload: React.FC = () => {
             Upload your datasets and let AI generate insights and dashboards automatically
           </p>
         </div>
-        <div className="text-sm text-gray-500 dark:text-gray-400">
-          {uploadedFiles.length} files uploaded
+        <div className="text-sm text-gray-500 dark:text-gray-400 flex items-center space-x-4">
+          <span>{uploadedFiles.length} files uploaded</span>
+          <button
+            onClick={() => fetchUploadedFiles()}
+            className="flex items-center space-x-1 px-2 py-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 rounded transition-colors"
+            title="Refresh file list"
+          >
+            <RefreshCw className="h-4 w-4" />
+            <span>Refresh</span>
+          </button>
+          {uploadedFiles.some(f => f.processing_status === 'processing') && (
+            <button
+              onClick={resetStuckFiles}
+              className="flex items-center space-x-1 px-2 py-1 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/50 rounded transition-colors"
+              title="Reset stuck files"
+            >
+              <AlertCircle className="h-4 w-4" />
+              <span>Reset Stuck</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -455,20 +613,8 @@ const FileUpload: React.FC = () => {
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         {formatFileSize(file.file_size)} • {file.file_type.toUpperCase()}
                       </p>
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        file.processing_status === 'completed' 
-                          ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' 
-                          : file.processing_status === 'failed' 
-                          ? 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300' 
-                          : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
-                      }`}>
-                        {file.processing_status === 'pending' 
-                          ? 'Uploading...' 
-                          : file.processing_status === 'processing' 
-                          ? 'Processing...' 
-                          : file.processing_status === 'completed' 
-                          ? 'Ready' 
-                          : 'Failed'}
+                      <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(file.processing_status)}`}>
+                        {getStatusText(file.processing_status)}
                       </span>
                       <span className="text-xs text-gray-500 dark:text-gray-400">
                         {new Date(file.created_at).toLocaleDateString()}
@@ -502,6 +648,15 @@ const FileUpload: React.FC = () => {
                         <BarChart3 className="h-4 w-4" />
                       </button>
                     </>
+                  )}
+                  {(file.processing_status === 'failed' || file.processing_status === 'processing') && (
+                    <button
+                      onClick={() => reprocessFile(file.id)}
+                      className="p-2 text-orange-500 hover:text-orange-700 hover:bg-orange-50 dark:hover:bg-orange-900/50 rounded-lg transition-colors"
+                      title="Reprocess file"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </button>
                   )}
                   <button
                     onClick={() => removeFile(file.id)}

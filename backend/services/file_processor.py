@@ -8,6 +8,8 @@ from models import UploadedFile, SemanticModel
 import PyPDF2
 import docx
 import numpy as np
+import time
+import asyncio
 
 class FileProcessorService:
     def __init__(self):
@@ -21,57 +23,76 @@ class FileProcessorService:
             'txt': self._process_text
         }
     
-    async def process_file(self, file_id: str, file_path: str, file_type: str):
-        """Process uploaded file and extract data"""
+    def _update_file_status(self, file_id: str, status: str, extracted_data: Dict = None, metadata: Dict = None, error: str = None):
+        """Update file status in database"""
         from database import SessionLocal
         
         db = SessionLocal()
         try:
-            # Get file record
-            file_record = db.query(UploadedFile).filter(
-                UploadedFile.id == file_id
-            ).first()
+            file_record = db.query(UploadedFile).filter(UploadedFile.id == file_id).first()
+            if file_record:
+                file_record.processing_status = status
+                if extracted_data:
+                    file_record.extracted_data = extracted_data
+                if metadata:
+                    file_record.metadata = metadata
+                if error:
+                    file_record.metadata = {"error": error}
+                
+                db.commit()
+                print(f"Updated file {file_id} status to: {status}")
+        except Exception as e:
+            print(f"Error updating file status: {str(e)}")
+            db.rollback()
+        finally:
+            db.close()
+
+    async def process_file(self, file_id: str, file_path: str, file_type: str):
+        """Process uploaded file and extract data"""
+        
+        try:
+            print(f"Starting processing for file {file_id}, type: {file_type}")
             
-            if not file_record:
-                return
+            # Update status to processing with start time
+            start_metadata = {"started_at": time.time()}
+            self._update_file_status(file_id, "processing", metadata=start_metadata)
             
-            # Update status to processing
-            file_record.processing_status = "processing"
-            db.commit()
+            # Small delay to show processing status
+            await asyncio.sleep(1)
             
             # Process file based on type
             processor = self.supported_types.get(file_type.lower())
             if not processor:
-                file_record.processing_status = "failed"
-                db.commit()
+                self._update_file_status(file_id, "failed", error="Unsupported file type")
                 return
             
-            try:
-                extracted_data = processor(file_path)
-                
-                # Update file record with extracted data
-                file_record.extracted_data = extracted_data
-                file_record.processing_status = "completed"
-                file_record.metadata = {
-                    "rows": len(extracted_data.get('rows', [])),
-                    "columns": len(extracted_data.get('columns', [])),
-                    "data_types": extracted_data.get('data_types', {}),
-                    "file_info": extracted_data.get('file_info', {})
-                }
-                
-                db.commit()
-                
-            except Exception as e:
-                file_record.processing_status = "failed"
-                file_record.metadata = {"error": str(e)}
-                db.commit()
-                
-        finally:
-            db.close()
+            print(f"Processing file with processor for type: {file_type}")
+            # Run the synchronous processor in a thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            extracted_data = await loop.run_in_executor(None, processor, file_path)
+            print(f"Successfully extracted data, rows: {len(extracted_data.get('rows', []))}")
+            
+            # Update file record with extracted data
+            metadata = {
+                "rows": len(extracted_data.get('rows', [])),
+                "columns": len(extracted_data.get('columns', [])),
+                "data_types": extracted_data.get('data_types', {}),
+                "file_info": extracted_data.get('file_info', {}),
+                "started_at": start_metadata["started_at"],
+                "completed_at": time.time()
+            }
+            
+            self._update_file_status(file_id, "completed", extracted_data, metadata)
+            print(f"File {file_id} processing completed successfully")
+            
+        except Exception as e:
+            print(f"Error processing file {file_id}: {str(e)}")
+            self._update_file_status(file_id, "failed", error=str(e))
     
     def _process_csv(self, file_path: str) -> Dict[str, Any]:
         """Process CSV file"""
         try:
+            print(f"Processing CSV file: {file_path}")
             # Try different encodings
             encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
             df = None
@@ -79,6 +100,7 @@ class FileProcessorService:
             for encoding in encodings:
                 try:
                     df = pd.read_csv(file_path, encoding=encoding)
+                    print(f"Successfully read CSV with encoding: {encoding}")
                     break
                 except UnicodeDecodeError:
                     continue
@@ -86,24 +108,32 @@ class FileProcessorService:
             if df is None:
                 raise ValueError("Could not read CSV file with any supported encoding")
             
-            return self._dataframe_to_dict(df)
+            result = self._dataframe_to_dict(df)
+            print(f"CSV processing complete. Rows: {len(result.get('rows', []))}, Columns: {len(result.get('columns', []))}")
+            return result
             
         except Exception as e:
+            print(f"Error processing CSV: {str(e)}")
             raise Exception(f"Error processing CSV: {str(e)}")
     
     def _process_excel(self, file_path: str) -> Dict[str, Any]:
         """Process Excel file"""
         try:
+            print(f"Processing Excel file: {file_path}")
             # Read first sheet
             df = pd.read_excel(file_path, sheet_name=0)
-            return self._dataframe_to_dict(df)
+            result = self._dataframe_to_dict(df)
+            print(f"Excel processing complete. Rows: {len(result.get('rows', []))}, Columns: {len(result.get('columns', []))}")
+            return result
             
         except Exception as e:
+            print(f"Error processing Excel: {str(e)}")
             raise Exception(f"Error processing Excel: {str(e)}")
     
     def _process_json(self, file_path: str) -> Dict[str, Any]:
         """Process JSON file"""
         try:
+            print(f"Processing JSON file: {file_path}")
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
@@ -126,11 +156,13 @@ class FileProcessorService:
                 }
                 
         except Exception as e:
+            print(f"Error processing JSON: {str(e)}")
             raise Exception(f"Error processing JSON: {str(e)}")
     
     def _process_pdf(self, file_path: str) -> Dict[str, Any]:
         """Process PDF file"""
         try:
+            print(f"Processing PDF file: {file_path}")
             text_content = ""
             
             with open(file_path, 'rb') as file:
@@ -139,7 +171,7 @@ class FileProcessorService:
                 for page in pdf_reader.pages:
                     text_content += page.extract_text() + "\n"
             
-            return {
+            result = {
                 "type": "text",
                 "content": text_content,
                 "file_info": {
@@ -147,20 +179,24 @@ class FileProcessorService:
                     "original_type": "pdf"
                 }
             }
+            print(f"PDF processing complete. Pages: {len(pdf_reader.pages)}")
+            return result
             
         except Exception as e:
+            print(f"Error processing PDF: {str(e)}")
             raise Exception(f"Error processing PDF: {str(e)}")
     
     def _process_docx(self, file_path: str) -> Dict[str, Any]:
         """Process Word document"""
         try:
+            print(f"Processing DOCX file: {file_path}")
             doc = docx.Document(file_path)
             text_content = ""
             
             for paragraph in doc.paragraphs:
                 text_content += paragraph.text + "\n"
             
-            return {
+            result = {
                 "type": "text",
                 "content": text_content,
                 "file_info": {
@@ -168,13 +204,17 @@ class FileProcessorService:
                     "original_type": "docx"
                 }
             }
+            print(f"DOCX processing complete. Paragraphs: {len(doc.paragraphs)}")
+            return result
             
         except Exception as e:
+            print(f"Error processing DOCX: {str(e)}")
             raise Exception(f"Error processing DOCX: {str(e)}")
     
     def _process_text(self, file_path: str) -> Dict[str, Any]:
         """Process text file"""
         try:
+            print(f"Processing text file: {file_path}")
             encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
             content = None
             
@@ -182,6 +222,7 @@ class FileProcessorService:
                 try:
                     with open(file_path, 'r', encoding=encoding) as f:
                         content = f.read()
+                    print(f"Successfully read text file with encoding: {encoding}")
                     break
                 except UnicodeDecodeError:
                     continue
@@ -189,7 +230,7 @@ class FileProcessorService:
             if content is None:
                 raise ValueError("Could not read text file with any supported encoding")
             
-            return {
+            result = {
                 "type": "text",
                 "content": content,
                 "file_info": {
@@ -198,12 +239,17 @@ class FileProcessorService:
                     "original_type": "txt"
                 }
             }
+            print(f"Text processing complete. Length: {len(content)} chars")
+            return result
             
         except Exception as e:
+            print(f"Error processing text file: {str(e)}")
             raise Exception(f"Error processing text file: {str(e)}")
     
     def _dataframe_to_dict(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Convert DataFrame to dictionary format"""
+        print(f"Converting DataFrame to dict. Shape: {df.shape}")
+        
         # Clean the dataframe
         df = self._clean_dataframe(df)
         
@@ -232,7 +278,7 @@ class FileProcessorService:
                 elif isinstance(value, (np.float64, np.float32)):
                     row[key] = float(value)
         
-        return {
+        result = {
             "type": "tabular",
             "columns": columns,
             "rows": rows,
@@ -244,9 +290,14 @@ class FileProcessorService:
                 "memory_usage": df.memory_usage(deep=True).sum()
             }
         }
+        
+        print(f"DataFrame conversion complete. Final rows: {len(rows)}, columns: {len(columns)}")
+        return result
     
     def _clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """Clean and prepare dataframe"""
+        print(f"Cleaning DataFrame. Original shape: {df.shape}")
+        
         # Remove completely empty rows and columns
         df = df.dropna(how='all').dropna(axis=1, how='all')
         
@@ -256,6 +307,7 @@ class FileProcessorService:
         # Handle duplicate column names
         df.columns = pd.io.common.dedup_names(df.columns, is_potential_multiindex=False)
         
+        print(f"DataFrame cleaned. New shape: {df.shape}")
         return df
     
     def _infer_column_type(self, series: pd.Series) -> str:
@@ -340,6 +392,7 @@ class FileProcessorService:
             db.commit()
             db.refresh(semantic_model)
             
+            print(f"Created semantic model: {model_name}")
             return semantic_model
             
         finally:

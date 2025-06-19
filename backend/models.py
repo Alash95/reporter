@@ -14,8 +14,8 @@ class User(Base):
     full_name = Column(String, nullable=False)
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now())
+    updated_at = Column(DateTime, default=datetime.now(), onupdate=datetime.now())
     
     # Relationships
     uploaded_files = relationship("UploadedFile", back_populates="user")
@@ -33,11 +33,11 @@ class UploadedFile(Base):
     file_path = Column(String, nullable=False)
     processing_status = Column(String, default="pending")
     extracted_data = Column(JSON)
-    file_metadata = Column(JSON)
+    file_metadata = Column(JSON, default=dict)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     semantic_model_id = Column(String, ForeignKey("semantic_models.id"))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now())
+    updated_at = Column(DateTime, default=datetime.now(), onupdate=datetime.now())
     
     # Relationships
     user = relationship("User", back_populates="uploaded_files")
@@ -50,8 +50,8 @@ class SemanticModel(Base):
     name = Column(String, nullable=False)
     description = Column(Text)
     schema_definition = Column(JSON, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now())
+    updated_at = Column(DateTime, default=datetime.now(), onupdate=datetime.now())
     
     # Relationships
     files = relationship("UploadedFile", back_populates="semantic_model")
@@ -70,7 +70,7 @@ class Query(Base):
     result_data = Column(JSON)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     model_id = Column(String, ForeignKey("semantic_models.id"))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now())
     
     # Relationships
     user = relationship("User", back_populates="queries")
@@ -86,8 +86,8 @@ class Dashboard(Base):
     widgets = Column(JSON, default=[])
     is_public = Column(Boolean, default=False)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now())
+    updated_at = Column(DateTime, default=datetime.now(), onupdate=datetime.now())
     
     # Relationships
     user = relationship("User", back_populates="dashboards")
@@ -103,7 +103,7 @@ class Widget(Base):
     data_source = Column(JSON)
     position = Column(JSON, default={})
     dashboard_id = Column(String, ForeignKey("dashboards.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now())
     
     # Relationships
     dashboard = relationship("Dashboard", back_populates="dashboard_widgets")
@@ -118,4 +118,4 @@ class Insight(Base):
     data_source_id = Column(String, nullable=False)
     data_source_type = Column(String, nullable=False)
     file_metadata = Column(JSON, default={})
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now())

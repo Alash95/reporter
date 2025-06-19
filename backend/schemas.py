@@ -183,7 +183,7 @@ class InsightResponse(BaseModel):
     title: str
     description: Optional[str]
     insight_type: str
-    metadata: Dict[str, Any]
+    file_metadata: Dict[str, Any]
     created_at: datetime
     
     class Config:
