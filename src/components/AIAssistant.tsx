@@ -1,292 +1,499 @@
-import React, { useState } from 'react';
+// src/components/AIAssistant.tsx - AI Assistant Component matching backend
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthenticatedFetch } from '../contexts/AuthContext';
-import { Send, Bot, User, Sparkles, Clock, Copy, Code, FileText, BarChart3 } from 'lucide-react';
+import { useRefreshManager } from '../hooks/useRefreshManager';
+import { 
+  Brain, 
+  Send, 
+  RefreshCw, 
+  Copy, 
+  Download, 
+  BarChart3, 
+  Database,
+  Lightbulb,
+  User,
+  TrendingUp
+} from 'lucide-react';
 
-interface Message {
+interface AIMessage {
   id: string;
-  type: 'user' | 'assistant';
+  role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  query?: {
-    sql: string;
-    explanation: string;
-    confidence: number;
+  assistant_type?: string;
+  metadata?: {
+    generated_query?: string;
+    confidence?: number;
+    data_source_used?: string;
+    chart_config?: any;
+    insights?: string[];
   };
 }
 
+interface AssistantType {
+  id: string;
+  name: string;
+  description: string;
+  icon: React.ComponentType<any>;
+  color: string;
+  bgColor: string;
+}
+
+interface Suggestion {
+  id: string;
+  text: string;
+  category: string;
+  assistant_type: string;
+}
+
+const ASSISTANT_TYPES: AssistantType[] = [
+  {
+    id: 'data_analyst',
+    name: 'Data Analyst',
+    description: 'General data analysis and insights',
+    icon: BarChart3,
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-50 dark:bg-blue-900/50'
+  },
+  {
+    id: 'sql_expert',
+    name: 'SQL Expert',
+    description: 'Generate and optimize SQL queries',
+    icon: Database,
+    color: 'text-green-600',
+    bgColor: 'bg-green-50 dark:bg-green-900/50'
+  },
+  {
+    id: 'data_scientist',
+    name: 'Data Scientist',
+    description: 'Advanced analytics and ML insights',
+    icon: Brain,
+    color: 'text-purple-600',
+    bgColor: 'bg-purple-50 dark:bg-purple-900/50'
+  },
+  {
+    id: 'business_analyst',
+    name: 'Business Analyst',
+    description: 'Business metrics and KPI analysis',
+    icon: TrendingUp,
+    color: 'text-orange-600',
+    bgColor: 'bg-orange-50 dark:bg-orange-900/50'
+  }
+];
+
 const AIAssistant: React.FC = () => {
   const authenticatedFetch = useAuthenticatedFetch();
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      type: 'assistant',
-      content: 'Hello! I\'m your AI Analytics Assistant. I can help you generate SQL queries from natural language. Try asking me something like "Show me monthly revenue for 2024" or "What are the top performing customer segments?"',
-      timestamp: new Date()
-    }
-  ]);
-  const [input, setInput] = useState('');
+  const refreshManager = useRefreshManager();
+  
+  const [messages, setMessages] = useState<AIMessage[]>([]);
+  const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedAssistant, setSelectedAssistant] = useState<string>('data_analyst');
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
 
-  const sendMessage = async () => {
-    if (!input.trim()) return;
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const mountedRef = useRef<boolean>(true);
 
-    const userMessage: Message = {
+  // Load suggestions for selected assistant
+  const loadSuggestions = useCallback(async () => {
+    if (!mountedRef.current) return;
+
+    setIsLoadingSuggestions(true);
+    try {
+      const response = await authenticatedFetch('http://localhost:8000/api/ai-assistant/suggestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assistant_type: selectedAssistant,
+          context: {
+            message_history: messages.slice(-3).map(m => ({
+              role: m.role,
+              content: m.content
+            }))
+          }
+        })
+      });
+
+      if (response.ok && mountedRef.current) {
+        const data = await response.json();
+        setSuggestions(data.suggestions || []);
+      }
+    } catch (error) {
+      console.error('Failed to load suggestions:', error);
+    } finally {
+      if (mountedRef.current) {
+        setIsLoadingSuggestions(false);
+      }
+    }
+  }, [authenticatedFetch, selectedAssistant, messages]);
+
+  // Initialize component
+  useEffect(() => {
+    mountedRef.current = true;
+
+    // Register with refresh manager for periodic suggestion updates
+    refreshManager.register('ai-assistant-suggestions', loadSuggestions, {
+      interval: 60000, // 1 minute
+      enabled: true,
+      minInterval: 10000,
+      maxRetries: 3
+    });
+
+    // Load initial suggestions
+    loadSuggestions();
+
+    // Add welcome message
+    if (messages.length === 0) {
+      const welcomeMessage: AIMessage = {
+        id: 'welcome',
+        role: 'assistant',
+        content: `🤖 **Welcome to AI Assistant!**
+
+I'm your specialized AI helper. Choose an assistant type and I'll provide tailored help:
+
+• **Data Analyst** - General data analysis and insights
+• **SQL Expert** - Query generation and optimization  
+• **Data Scientist** - Advanced analytics and ML
+• **Business Analyst** - Business metrics and KPIs
+
+Ask me anything about your data!`,
+        timestamp: new Date(),
+        assistant_type: selectedAssistant
+      };
+      setMessages([welcomeMessage]);
+    }
+
+    return () => {
+      mountedRef.current = false;
+      refreshManager.unregister('ai-assistant-suggestions');
+    };
+  }, [refreshManager, loadSuggestions, selectedAssistant, messages.length]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages.length]);
+
+  const scrollToBottom = useCallback(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, []);
+
+  // Send message to AI Assistant
+  const sendMessage = useCallback(async () => {
+    if (!inputMessage.trim() || isLoading || !mountedRef.current) return;
+
+    const userMessage: AIMessage = {
       id: Date.now().toString(),
-      type: 'user',
-      content: input,
-      timestamp: new Date()
+      role: 'user',
+      content: inputMessage,
+      timestamp: new Date(),
+      assistant_type: selectedAssistant
     };
 
     setMessages(prev => [...prev, userMessage]);
-    const currentInput = input;
-    setInput('');
+    setInputMessage('');
     setIsLoading(true);
 
     try {
-      const response = await authenticatedFetch('http://localhost:8000/api/ai/query', {
+      const response = await authenticatedFetch('http://localhost:8000/api/ai-assistant/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: currentInput,
-          model_id: 'ecommerce'
-        }),
+          message: inputMessage,
+          assistant_type: selectedAssistant,
+          context: {
+            conversation_history: messages.slice(-5).map(m => ({
+              role: m.role,
+              content: m.content,
+              assistant_type: m.assistant_type
+            }))
+          }
+        })
       });
 
-      if (response.ok) {
-        const queryResult = await response.json();
-
-        const assistantMessage: Message = {
+      if (response.ok && mountedRef.current) {
+        const result = await response.json();
+        
+        const assistantMessage: AIMessage = {
           id: (Date.now() + 1).toString(),
-          type: 'assistant',
-          content: 'I\'ve generated a SQL query based on your request. Here\'s what it does:',
+          role: 'assistant',
+          content: result.response || result.message,
           timestamp: new Date(),
-          query: queryResult
+          assistant_type: selectedAssistant,
+          metadata: {
+            generated_query: result.generated_query,
+            confidence: result.confidence,
+            data_source_used: result.data_source_used,
+            chart_config: result.chart_config,
+            insights: result.insights
+          }
         };
 
         setMessages(prev => [...prev, assistantMessage]);
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to generate query');
+
+        // Reload suggestions based on new context
+        setTimeout(() => loadSuggestions(), 1000);
       }
     } catch (error) {
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        type: 'assistant',
-        content: `I apologize, but I encountered an error while processing your request: ${error instanceof Error ? error.message : 'Unknown error'}. 
+      console.error('Failed to send message:', error);
+      
+      if (mountedRef.current) {
+        const errorMessage: AIMessage = {
+          id: (Date.now() + 2).toString(),
+          role: 'assistant',
+          content: `❌ **I encountered an error processing your request.**
 
-Please try rephrasing your question or check if:
-- Your question is related to data analysis
-- You're asking for a SQL query
-- The request is clear and specific
+${error instanceof Error ? error.message : 'Unknown error occurred'}
 
-Examples of good requests:
-- "Show me revenue by region"
-- "Get top 10 customers by sales"
-- "Find monthly sales trends"`,
-        timestamp: new Date()
-      };
+Please try:
+• Rephrasing your question
+• Switching to a different assistant type
+• Checking your data sources
 
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const copyQuery = (sql: string) => {
-    navigator.clipboard.writeText(sql);
-    alert('Query copied to clipboard!');
-  };
-
-  const executeQuery = async (sql: string) => {
-    try {
-      const response = await authenticatedFetch('http://localhost:8000/api/queries/execute', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          sql,
-          model_id: 'ecommerce'
-        }),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-
-        const resultMessage: Message = {
-          id: Date.now().toString(),
-          type: 'assistant',
-          content: `Query executed successfully! 
-
-📊 **Results Summary:**
-- **Rows returned:** ${result.row_count}
-- **Execution time:** ${result.execution_time}ms
-- **Query ID:** ${result.query_id}
-
-${result.from_cache ? '🚀 Results served from cache for faster response!' : ''}
-
-The data has been processed and is ready for analysis. You can download the results or ask me to generate visualizations based on this data.`,
-          timestamp: new Date()
+I'm here to help once the issue is resolved!`,
+          timestamp: new Date(),
+          assistant_type: selectedAssistant
         };
 
-        setMessages(prev => [...prev, resultMessage]);
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Query execution failed');
+        setMessages(prev => [...prev, errorMessage]);
       }
-    } catch (error) {
-      const errorMessage: Message = {
-        id: Date.now().toString(),
-        type: 'assistant',
-        content: `Failed to execute the query: ${error instanceof Error ? error.message : 'Unknown error'}. 
-
-Please check:
-- SQL syntax is correct
-- Referenced tables and columns exist
-- You have necessary permissions
-
-Would you like me to help you modify the query?`,
-        timestamp: new Date()
-      };
-
-      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
     }
-  };
+  }, [inputMessage, isLoading, selectedAssistant, messages, authenticatedFetch, loadSuggestions]);
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  // Handle assistant type change
+  const handleAssistantChange = useCallback((assistantType: string) => {
+    setSelectedAssistant(assistantType);
+    loadSuggestions();
+  }, [loadSuggestions]);
+
+  // Copy message content
+  const copyToClipboard = useCallback((text: string) => {
+    navigator.clipboard.writeText(text);
+  }, []);
+
+  // Download generated query
+  const downloadQuery = useCallback((query: string, filename: string = 'generated_query.sql') => {
+    const blob = new Blob([query], { type: 'text/sql' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  }, []);
+
+  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
-  };
+  }, [sendMessage]);
 
-  const suggestedPrompts = [
-    "Show me monthly revenue trends for the last year",
-    "What are the top performing customer segments?",
-    "Compare revenue by region",
-    "Show me customer acquisition trends",
-    "Get the average order value by customer type",
-    "Find the most popular products this month"
-  ];
+  const selectedAssistantInfo = ASSISTANT_TYPES.find(a => a.id === selectedAssistant) || ASSISTANT_TYPES[0];
 
   return (
-    <div className="p-6 h-[calc(100vh-120px)] flex flex-col">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            AI Analytics Assistant
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Generate SQL queries from natural language descriptions
-          </p>
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Assistant Types Sidebar */}
+      <div className="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            AI Assistants
+          </h3>
+          
+          <div className="space-y-2">
+            {ASSISTANT_TYPES.map((assistant) => (
+              <button
+                key={assistant.id}
+                onClick={() => handleAssistantChange(assistant.id)}
+                className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                  selectedAssistant === assistant.id
+                    ? `${assistant.bgColor} border-current ${assistant.color}`
+                    : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}
+              >
+                <div className="flex items-start space-x-3">
+                  <assistant.icon className={`h-5 w-5 ${
+                    selectedAssistant === assistant.id ? assistant.color : 'text-gray-400'
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <p className={`font-medium ${
+                      selectedAssistant === assistant.id 
+                        ? assistant.color 
+                        : 'text-gray-900 dark:text-white'
+                    }`}>
+                      {assistant.name}
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                      {assistant.description}
+                    </p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex items-center space-x-2">
-          <Sparkles className="h-5 w-5 text-purple-500" />
-          <span className="text-sm text-gray-500 dark:text-gray-400">
-            Powered by AI
-          </span>
+
+        {/* Suggestions */}
+        <div className="flex-1 p-4 overflow-y-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-medium text-gray-900 dark:text-white">
+              Suggestions
+            </h4>
+            <button
+              onClick={loadSuggestions}
+              disabled={isLoadingSuggestions}
+              className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <RefreshCw className={`h-4 w-4 ${isLoadingSuggestions ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+          
+          {isLoadingSuggestions ? (
+            <div className="space-y-2">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="h-12 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div>
+              ))}
+            </div>
+          ) : suggestions.length === 0 ? (
+            <div className="text-center py-8">
+              <Lightbulb className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                No suggestions available
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {suggestions.map((suggestion) => (
+                <button
+                  key={suggestion.id}
+                  onClick={() => setInputMessage(suggestion.text)}
+                  className="w-full text-left p-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                >
+                  {suggestion.text}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="flex-1 bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col">
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      {/* Chat Interface */}
+      <div className="flex-1 flex flex-col">
+        {/* Chat Header */}
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <selectedAssistantInfo.icon className={`h-6 w-6 ${selectedAssistantInfo.color}`} />
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {selectedAssistantInfo.name}
+                </h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {selectedAssistantInfo.description}
+                </p>
+              </div>
+            </div>
+            
+            {isLoading && (
+              <div className="flex items-center space-x-2 text-blue-600 dark:text-blue-400">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span className="text-sm">Processing...</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Messages Area */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
           {messages.map((message) => (
-            <div key={message.id} className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-3xl ${message.type === 'user' ? 'order-2' : 'order-1'}`}>
-                <div className={`flex items-start space-x-3 ${message.type === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                    message.type === 'user' 
-                      ? 'bg-blue-500' 
-                      : 'bg-gradient-to-r from-purple-500 to-pink-500'
-                  }`}>
-                    {message.type === 'user' ? (
-                      <User className="h-4 w-4 text-white" />
-                    ) : (
-                      <Bot className="h-4 w-4 text-white" />
-                    )}
-                  </div>
-                  <div className={`flex-1 ${message.type === 'user' ? 'text-right' : ''}`}>
-                    <div className={`inline-block px-4 py-3 rounded-2xl ${
-                      message.type === 'user'
-                        ? 'bg-blue-500 text-white'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
-                    }`}>
-                      <div className="whitespace-pre-wrap">{message.content}</div>
-                    </div>
-                    
-                    {message.query && (
-                      <div className="mt-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <Code className="h-4 w-4 text-gray-500" />
-                              <h4 className="text-sm font-medium text-gray-900 dark:text-white">
-                                Generated SQL Query
-                              </h4>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <span className={`px-2 py-1 rounded-full text-xs ${
-                                message.query.confidence >= 0.8 
-                                  ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
-                                  : message.query.confidence >= 0.6
-                                  ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300'
-                                  : 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300'
-                              }`}>
-                                {Math.round(message.query.confidence * 100)}% confidence
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="p-4">
-                          <pre className="text-sm bg-gray-900 text-green-400 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap">
-                            {message.query.sql}
-                          </pre>
-                          <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/50 rounded-lg">
-                            <div className="flex items-center space-x-2 mb-2">
-                              <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                              <span className="text-sm font-medium text-blue-900 dark:text-blue-300">
-                                Explanation
-                              </span>
-                            </div>
-                            <p className="text-sm text-blue-800 dark:text-blue-200">
-                              {message.query.explanation}
-                            </p>
-                          </div>
-                          <div className="flex items-center space-x-2 mt-4">
-                            <button
-                              onClick={() => copyQuery(message.query!.sql)}
-                              className="flex items-center space-x-1 px-3 py-2 text-sm bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
-                            >
-                              <Copy className="h-4 w-4" />
-                              <span>Copy</span>
-                            </button>
-                            <button
-                              onClick={() => executeQuery(message.query!.sql)}
-                              className="flex items-center space-x-1 px-3 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                            >
-                              <BarChart3 className="h-4 w-4" />
-                              <span>Execute</span>
-                            </button>
-                            <button
-                              onClick={() => window.open('/dashboard/query-builder', '_blank')}
-                              className="flex items-center space-x-1 px-3 py-2 text-sm bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
-                            >
-                              <Code className="h-4 w-4" />
-                              <span>Open in Query Builder</span>
-                            </button>
-                          </div>
-                        </div>
+            <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-3xl ${message.role === 'user' ? 'order-2' : 'order-1'}`}>
+                <div className="flex items-start space-x-3">
+                  {message.role === 'assistant' && (
+                    <div className="flex-shrink-0">
+                      <div className={`w-8 h-8 ${selectedAssistantInfo.bgColor} rounded-full flex items-center justify-center`}>
+                        <selectedAssistantInfo.icon className={`h-5 w-5 ${selectedAssistantInfo.color}`} />
                       </div>
-                    )}
-                    
-                    <div className="flex items-center space-x-2 mt-2 text-xs text-gray-500 dark:text-gray-400">
-                      <Clock className="h-3 w-3" />
-                      <span>{message.timestamp.toLocaleTimeString()}</span>
+                    </div>
+                  )}
+                  
+                  <div className={`flex-1 ${message.role === 'user' ? 'order-1' : 'order-2'}`}>
+                    <div className={`p-4 rounded-lg ${
+                      message.role === 'user'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700'
+                    }`}>
+                      <div className="whitespace-pre-wrap">
+                        {message.content}
+                      </div>
+
+                      {/* SQL Query Display */}
+                      {message.metadata?.generated_query && (
+                        <div className="mt-3 p-3 bg-gray-100 dark:bg-gray-700 rounded border">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                              Generated SQL Query
+                            </span>
+                            <div className="flex space-x-1">
+                              <button
+                                onClick={() => copyToClipboard(message.metadata!.generated_query!)}
+                                className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                              >
+                                <Copy className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => downloadQuery(message.metadata!.generated_query!)}
+                                className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                              >
+                                <Download className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                          <code className="text-sm text-gray-800 dark:text-gray-200 block">
+                            {message.metadata.generated_query}
+                          </code>
+                          {message.metadata.confidence && (
+                            <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                              Confidence: {(message.metadata.confidence * 100).toFixed(1)}%
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Message Actions */}
+                      {message.role === 'assistant' && (
+                        <div className="flex items-center space-x-2 mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                          <button
+                            onClick={() => copyToClipboard(message.content)}
+                            className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                            title="Copy message"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </button>
+                          
+                          <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">
+                            {message.timestamp.toLocaleTimeString()}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
+                  
+                  {message.role === 'user' && (
+                    <div className="flex-shrink-0 order-2">
+                      <div className="w-8 h-8 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center">
+                        <User className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -294,80 +501,50 @@ Would you like me to help you modify the query?`,
           
           {isLoading && (
             <div className="flex justify-start">
-              <div className="max-w-3xl">
-                <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-gradient-to-r from-purple-500 to-pink-500">
-                    <Bot className="h-4 w-4 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="inline-block px-4 py-3 rounded-2xl bg-gray-100 dark:bg-gray-700">
-                      <div className="flex items-center space-x-2">
-                        <div className="flex space-x-1">
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                        </div>
-                        <span className="text-sm text-gray-600 dark:text-gray-300">Generating SQL query...</span>
-                      </div>
-                    </div>
+              <div className="flex items-start space-x-3">
+                <div className={`w-8 h-8 ${selectedAssistantInfo.bgColor} rounded-full flex items-center justify-center`}>
+                  <selectedAssistantInfo.icon className={`h-5 w-5 ${selectedAssistantInfo.color}`} />
+                </div>
+                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <div className="flex items-center space-x-2">
+                    <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
+                    <span className="text-gray-600 dark:text-gray-400">AI is analyzing...</span>
                   </div>
                 </div>
               </div>
             </div>
           )}
+          
+          <div ref={messagesEndRef} />
         </div>
 
-        {/* Suggested Prompts */}
-        {messages.length === 1 && (
-          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Try these sample prompts:</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {suggestedPrompts.map((prompt, index) => (
-                <button
-                  key={index}
-                  onClick={() => setInput(prompt)}
-                  className="text-left px-3 py-2 text-sm bg-blue-50 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/75 transition-colors"
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Input */}
-        <div className="p-6 border-t border-gray-200 dark:border-gray-700">
-          <div className="flex space-x-4">
+        {/* Input Area */}
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div className="flex items-end space-x-3">
             <div className="flex-1">
               <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Describe what you want to query... (e.g., 'Show me monthly revenue trends')"
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none"
-                rows={1}
+                ref={inputRef}
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                onKeyDown={handleKeyPress}
+                placeholder={`Ask ${selectedAssistantInfo.name} anything...`}
+                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                rows={3}
                 disabled={isLoading}
               />
             </div>
             <button
               onClick={sendMessage}
-              disabled={!input.trim() || isLoading}
-              className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2 transition-colors"
+              disabled={!inputMessage.trim() || isLoading}
+              className="p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Send className="h-4 w-4" />
-              <span>Generate</span>
+              <Send className="h-5 w-5" />
             </button>
           </div>
           
-          <div className="flex items-center justify-between mt-3 text-xs text-gray-500 dark:text-gray-400">
+          <div className="flex items-center justify-between mt-2 text-xs text-gray-500 dark:text-gray-400">
             <span>Press Enter to send, Shift+Enter for new line</span>
-            <div className="flex items-center space-x-4">
-              <span>Using ecommerce data model</span>
-              <div className="flex items-center space-x-1">
-                <div className="h-2 w-2 bg-green-500 rounded-full"></div>
-                <span>AI Ready</span>
-              </div>
-            </div>
+            <span>Assistant: {selectedAssistantInfo.name}</span>
           </div>
         </div>
       </div>

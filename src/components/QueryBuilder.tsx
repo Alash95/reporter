@@ -73,10 +73,10 @@ interface QueryResult {
 }
 
 interface QueryBuilderContext {
-  available_schemas: SchemaInfo[];
-  recent_queries: string[];
-  sample_queries: string[];
-  query_templates: any[];
+  available_schemas?: SchemaInfo[];
+  recent_queries?: any[];
+  sample_queries?: any[];
+  query_templates?: any[];
 }
 
 const EnhancedQueryBuilder: React.FC = () => {
@@ -98,10 +98,12 @@ const EnhancedQueryBuilder: React.FC = () => {
 
   const sqlEditorRef = useRef<HTMLTextAreaElement>(null);
 
-  // ✅ FIXED: Moved all functions that use authenticatedFetch after the hook call
+  // Fixed function for QueryBuilder.tsx - Update the loadQueryBuilderContext function
+
   const loadQueryBuilderContext = useCallback(async () => {
     try {
       setIsLoading(true);
+      // FIXED: Updated endpoint to match backend route
       const response = await authenticatedFetch('http://localhost:8000/api/integration/context/query-builder');
       
       if (response.ok) {
@@ -113,9 +115,35 @@ const EnhancedQueryBuilder: React.FC = () => {
           const firstSchema = contextData.available_schemas[0];
           setExpandedTables(new Set(firstSchema.tables.map((t: TableSchema) => t.name)));
         }
+      } else {
+        console.error('Failed to load query builder context:', response.status);
+        // Fallback to basic context if endpoint fails
+        setContext({
+          available_schemas: [],
+          sample_queries: [],
+          query_templates: [
+            {
+              name: "Basic Select",
+              template: "SELECT * FROM table_name LIMIT 10;",
+              description: "Select all columns from a table"
+            },
+            {
+              name: "Group By Count", 
+              template: "SELECT column_name, COUNT(*) FROM table_name GROUP BY column_name;",
+              description: "Count records by group"
+            }
+          ]
+        });
       }
     } catch (error) {
       console.error('Failed to load query builder context:', error);
+      // Set fallback context on error
+      setContext({
+        available_schemas: [],
+        sample_queries: [],
+        query_templates: [],
+        recent_queries: [],
+      });
     } finally {
       setIsLoading(false);
     }
@@ -137,7 +165,7 @@ const EnhancedQueryBuilder: React.FC = () => {
     if (!selectedSchema || !context) return;
 
     try {
-      const schema = context.available_schemas.find(s => s.model_id === selectedSchema);
+      const schema = context.available_schemas ? context.available_schemas.find(s => s.model_id === selectedSchema) : undefined;
       if (!schema) return;
 
       const response = await authenticatedFetch('http://localhost:8000/api/ai/query-suggestions', {
@@ -250,8 +278,13 @@ const EnhancedQueryBuilder: React.FC = () => {
   }, [loadQueryBuilderContext, loadQueryHistory]);
 
   useEffect(() => {
-    if (context?.available_schemas.length && !selectedSchema) {
-      setSelectedSchema(context.available_schemas[0].model_id);
+    if (
+      context &&
+      Array.isArray(context.available_schemas) &&
+      context.available_schemas.length > 0 &&
+      !selectedSchema
+    ) {
+      setSelectedSchema(context.available_schemas[0].model_id || '');
     }
   }, [context, selectedSchema]);
 
@@ -355,7 +388,7 @@ const EnhancedQueryBuilder: React.FC = () => {
   };
 
   const getCurrentSchema = (): SchemaInfo | undefined => {
-    return context?.available_schemas.find(s => s.model_id === selectedSchema);
+    return context?.available_schemas ? context?.available_schemas.find(s => s.model_id === selectedSchema) : undefined;
   };
 
   const filteredItems = (items: any[], searchTerm: string) => {
@@ -397,7 +430,7 @@ const EnhancedQueryBuilder: React.FC = () => {
           </div>
 
           {/* Schema Selector */}
-          {context?.available_schemas.length ? (
+          {context?.available_schemas ?context?.available_schemas.length ? (
             <select
               value={selectedSchema}
               onChange={(e) => setSelectedSchema(e.target.value)}
@@ -415,7 +448,7 @@ const EnhancedQueryBuilder: React.FC = () => {
               <p className="text-sm">No schemas available</p>
               <p className="text-xs">Upload data files to create schemas</p>
             </div>
-          )}
+          ) : null}
 
           {/* Search */}
           <div className="relative mt-3">
@@ -711,7 +744,7 @@ const EnhancedQueryBuilder: React.FC = () => {
               </div>
               
               {/* Sample Queries */}
-              {context?.sample_queries.length && (
+              {context?.sample_queries ? context?.sample_queries.length : (
                 <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-800">
                   <div className="flex items-center space-x-2 mb-2">
                     <BookOpen className="h-4 w-4 text-gray-500" />
@@ -720,7 +753,7 @@ const EnhancedQueryBuilder: React.FC = () => {
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {context.sample_queries.slice(0, 5).map((query, index) => (
+                    {context?.sample_queries ? context?.sample_queries.slice(0, 5).map((query, index) => (
                       <button
                         key={index}
                         onClick={() => setSql(query)}
@@ -728,7 +761,7 @@ const EnhancedQueryBuilder: React.FC = () => {
                       >
                         {query.substring(0, 50)}...
                       </button>
-                    ))}
+                    )) : null}
                   </div>
                 </div>
               )}

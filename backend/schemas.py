@@ -422,3 +422,215 @@ class SemanticModelBase(BaseModel):
         "from_attributes": True,
         "protected_namespaces": ()
     }
+
+
+# Request/Response models for the new integration endpoints
+
+class DataSourceSyncRequest(BaseModel):
+    """Request model for syncing data sources"""
+    features: Optional[List[str]] = None  # Features to sync with, default to all
+    force_refresh: bool = False
+    options: Dict[str, Any] = {}
+
+class DataSourceSyncResponse(BaseModel):
+    """Response model for sync operations"""
+    sync_id: str
+    status: str
+    message: str
+    started_at: Optional[str] = None
+
+class IntegrationInfo(BaseModel):
+    """Model for integration information"""
+    id: str
+    name: str
+    type: str
+    status: str
+    last_sync: Optional[str] = None
+    sync_frequency: str
+    records_count: int
+    health_score: float
+    features_connected: List[str]
+    configuration: Dict[str, Any]
+
+class IntegrationMetrics(BaseModel):
+    """Model for integration metrics"""
+    total_integrations: int
+    active_integrations: int
+    failed_integrations: int
+    total_records_synced: int
+    avg_sync_time: int  # in milliseconds
+    uptime_percentage: float
+    last_updated: str
+
+class SyncActivity(BaseModel):
+    """Model for sync activity records"""
+    id: str
+    integration_name: str
+    status: str
+    timestamp: str
+    records_processed: int
+    duration_ms: int
+    error_details: Optional[str] = None
+
+class IntegrationStatusOverview(BaseModel):
+    """Overall integration status response"""
+    integrations: List[IntegrationInfo]
+    total_count: int
+    status: str
+
+class IntegrationActivityResponse(BaseModel):
+    """Response for integration activity"""
+    activities: List[SyncActivity]
+    total_count: int
+
+class TableColumn(BaseModel):
+    """Database table column definition"""
+    name: str
+    type: str
+    description: Optional[str] = None
+
+class TableSchema(BaseModel):
+    """Database table schema"""
+    name: str
+    columns: List[TableColumn]
+
+class DataSourceSchema(BaseModel):
+    """Data source schema information"""
+    model_id: str
+    model_name: str
+    description: Optional[str] = None
+    tables: List[TableSchema]
+
+class QueryTemplate(BaseModel):
+    """SQL query template"""
+    name: str
+    template: str
+    description: str
+
+class SuggestedQuery(BaseModel):
+    """Suggested query for query builder"""
+    query: str
+    description: str
+
+class QueryBuilderContext(BaseModel):
+    """Context data for query builder"""
+    available_schemas: List[DataSourceSchema]
+    suggested_queries: List[SuggestedQuery]
+    sql_templates: List[QueryTemplate]
+
+class AvailableQuery(BaseModel):
+    """Available query for dashboard builder"""
+    query_id: str
+    query_name: str
+    sql: str
+    last_run: Optional[str] = None
+
+class ExistingDashboard(BaseModel):
+    """Existing dashboard info"""
+    dashboard_id: str
+    name: str
+    description: Optional[str] = None
+
+class DashboardBuilderContext(BaseModel):
+    """Context data for dashboard builder"""
+    available_queries: List[AvailableQuery]
+    existing_dashboards: List[ExistingDashboard]
+    chart_types: List[str]
+
+class KnowledgeBaseItem(BaseModel):
+    """Knowledge base item for AI assistant"""
+    type: str
+    name: str
+    description: str
+
+class QueryPattern(BaseModel):
+    """Query pattern for AI assistant"""
+    pattern: str
+    sql_template: str
+    description: str
+
+class AIAssistantContext(BaseModel):
+    """Context data for AI assistant"""
+    knowledge_base: List[KnowledgeBaseItem]
+    query_patterns: List[QueryPattern]
+    sample_queries: List[str]
+    user_preferences: Dict[str, Any]
+
+class ConversationalAIContext(BaseModel):
+    """Context data for conversational AI"""
+    available_schemas: List[DataSourceSchema]
+    sample_questions: List[str]
+    conversation_history: List[Dict[str, Any]]
+
+class FeatureIntegrationStatus(BaseModel):
+    """Feature integration status"""
+    feature_name: str
+    enabled: bool
+    last_sync: Optional[str] = None
+    sync_status: str
+
+class IntegrationStatusResponse(BaseModel):
+    """Integration status for a specific data source"""
+    file_id: str
+    overall_status: str
+    feature_integrations: List[FeatureIntegrationStatus]
+    data_source_registered: bool
+    semantic_model_created: bool
+    last_updated: str
+
+class NotificationResponse(BaseModel):
+    """Notification response model"""
+    id: str
+    timestamp: str
+    feature: str
+    type: str
+    data_summary: Dict[str, Any]
+    processed: bool
+
+class DataSourceInfo(BaseModel):
+    """Data source information model"""
+    source_id: str
+    source_name: str
+    source_type: str
+    data_type: str
+    user_id: str
+    schema: Dict[str, Any]
+    semantic_model_id: Optional[str] = None
+    created_at: str
+    status: str
+    feature_integrations: Dict[str, Any]
+
+class DataSourceList(BaseModel):
+    """List of data sources"""
+    sources: List[DataSourceInfo]
+    total_count: int
+
+class SystemStatistics(BaseModel):
+    """System statistics response"""
+    user_statistics: Dict[str, Any]
+    system_statistics: Dict[str, Any]
+    integration_health: Dict[str, str]
+
+class DataExchangeRequest(BaseModel):
+    """Request for cross-feature data exchange"""
+    source_feature: str
+    target_feature: str
+    data: Dict[str, Any]
+
+class DataExchangeResponse(BaseModel):
+    """Response for cross-feature data exchange"""
+    status: str
+    message: str
+    data_summary: Dict[str, Any]
+
+class CleanupResponse(BaseModel):
+    """Response for cleanup operations"""
+    message: str
+    items_cleaned: Optional[int] = None
+    days_threshold: Optional[int] = None
+
+# Schema Browser Response
+class SchemaBrowserResponse(BaseModel):
+    """Schema browser response"""
+    schemas: List[DataSourceSchema]
+    total_schemas: int

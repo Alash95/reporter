@@ -1,24 +1,18 @@
-// src/components/EnhancedConversationalAI.tsx - Updated with full data source integration
-
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+// src/components/ConversationalAI.tsx - FIXED VERSION
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuthenticatedFetch } from '../contexts/AuthContext';
+import { useIntegration } from '../contexts/IntegrationContext';
+import { useRefreshManager } from '../hooks/useRefreshManager';
 import { 
   Send, 
-  Bot, 
-  User, 
+  RefreshCw, 
+  Download, 
   Copy, 
-  Play, 
-  BarChart3, 
-  Database,
-  Sparkles,
-  RefreshCw,
-  AlertCircle,
-  CheckCircle,
-  Code,
-  TrendingUp,
-  FileText,
-  Download
+  Database, 
+  FileText, 
+  Bot,
+  User
 } from 'lucide-react';
-import { useAuthenticatedFetch } from '../contexts/AuthContext';
 
 interface Message {
   id: string;
@@ -26,170 +20,114 @@ interface Message {
   content: string;
   timestamp: Date;
   metadata?: {
-    query?: string;
     data?: any[];
-    chart?: any;
-    insights?: string[];
-    analysis?: any;
-    data_sources_used?: string[];
+    query?: string;
     error?: string;
+    chart_config?: any;
   };
+// interface Message {
+//   id: string;
+//   role: 'user' | 'assistant';
+//   content: string;
+//   timestamp: Date;
+//   metadata?: {
+//     data?: any[];
+//     query?: string;
+//     error?: string;
+//     chart_config?: any;
+//   };
 }
 
 interface DataSource {
-  source_id: string;
-  source_name: string;
-  source_type: string;
-  data_type: string;
-  schema: any;
-  semantic_model_id?: string;
+  id: string;
+  name: string;
+  type: string;
   status: string;
+  metadata: any;
 }
 
 interface ConversationContext {
   available_data_sources: DataSource[];
-  recent_queries: string[];
-  suggested_questions: string[];
-  current_session_data?: any;
+  recent_queries: any[];
+  user_preferences: any;
 }
 
-const EnhancedConversationalAI: React.FC = () => {
+const ConversationalAI: React.FC = () => {
+  const authenticatedFetch = useAuthenticatedFetch();
+  const { actions } = useIntegration();
+  const refreshManager = useRefreshManager();
+  
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+  const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [context, setContext] = useState<ConversationContext | null>(null);
+  const [isContextLoading, setIsContextLoading] = useState(false);
   const [selectedDataSources, setSelectedDataSources] = useState<string[]>([]);
-  const [isContextLoading, setIsContextLoading] = useState(true);
+
+  // FIXED: Use refs to prevent unnecessary re-renders and manage state properly
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const mountedRef = useRef<boolean>(true);
+  const contextLoadedRef = useRef<boolean>(false);
 
-  // ✅ FIXED: Properly call the hook to get the authenticatedFetch function
-  const authenticatedFetch = useAuthenticatedFetch();
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  // ✅ FIXED: Moved all functions that use authenticatedFetch after the hook call
+  // FIXED: Stable function that doesn't recreate on every render
   const initializeConversation = useCallback(async () => {
+    if (!mountedRef.current || contextLoadedRef.current) return;
+
+    setIsContextLoading(true);
+    
     try {
-      setIsContextLoading(true);
+      const response = await authenticatedFetch('http://localhost:8000/api/conversational-ai/context');
       
-      // Load conversational AI context
-      const contextResponse = await authenticatedFetch('http://localhost:8000/api/integration/context/conversational-ai');
-      if (contextResponse.ok) {
-        const contextData = await contextResponse.json();
+      if (response.ok && mountedRef.current) {
+        const contextData = await response.json();
         setContext(contextData);
-        
-        // Set all data sources as selected by default
-        setSelectedDataSources(contextData.available_data_sources.map((ds: DataSource) => ds.source_id));
+        contextLoadedRef.current = true;
+
+        // Auto-select all available data sources
+        const sourceIds = contextData.available_data_sources?.map((source: DataSource) => source.id) || [];
+        setSelectedDataSources(sourceIds);
+
+        // Add welcome message only if no messages exist
+        if (messages.length === 0) {
+          const welcomeMessage: Message = {
+            id: 'welcome',
+            role: 'assistant',
+            content: `👋 **Welcome to AI Analytics!**
+
+I'm here to help you analyze your data and answer questions. Here's what I can do:
+
+🔍 **Query your data** - Ask questions in natural language
+📊 **Create visualizations** - Generate charts and dashboards
+📈 **Provide insights** - Analyze trends and patterns
+🤖 **Execute SQL** - Run complex database queries
+
+**Available data sources:** ${contextData.available_data_sources?.length || 0}
+
+Try asking something like:
+• "Show me sales trends for the last quarter"
+• "What are the top performing products?"
+• "Create a dashboard showing customer demographics"
+
+What would you like to explore?`,
+            timestamp: new Date()
+          };
+          
+          setMessages([welcomeMessage]);
+        }
       }
-
-      // Set welcome message
-      const welcomeMessage: Message = {
-        id: 'welcome',
-        role: 'assistant',
-        content: `🎉 **Welcome to Enhanced AI Analytics!**
-
-I'm your AI assistant with full access to your uploaded data sources. I can help you:
-
-📊 **Smart Data Analysis** - Ask questions and get instant insights
-🔍 **Intelligent Queries** - Generate SQL automatically from natural language  
-📈 **Auto Visualizations** - Create charts and graphs with simple requests
-💡 **AI Insights** - Discover patterns and trends in your data
-🤝 **Seamless Integration** - Work across Query Builder, Dashboard Builder, and more
-
-**Your Data Sources:**
-${context?.available_data_sources.length ? 
-  context.available_data_sources.map(ds => `• ${ds.source_name} (${ds.data_type})`).join('\n') :
-  '• No data sources yet - upload a file to get started!'
-}
-
-**Try asking:**
-${context?.suggested_questions.slice(0, 3).map(q => `• "${q}"`).join('\n') || 
-  '• "Show me a summary of my data"\n• "Create a chart from my latest file"\n• "What insights can you find?"'}
-
-What would you like to explore today?`,
-        timestamp: new Date()
-      };
-
-      setMessages([welcomeMessage]);
     } catch (error) {
       console.error('Failed to initialize conversation:', error);
-      setMessages([{
-        id: 'error',
-        role: 'assistant',
-        content: 'Welcome! I had trouble loading your data sources, but I can still help you. Try uploading a data file first.',
-        timestamp: new Date()
-      }]);
-    } finally {
-      setIsContextLoading(false);
-    }
-  }, [authenticatedFetch, context?.available_data_sources, context?.suggested_questions]);
-
-  const sendMessage = async () => {
-    if (!input.trim()) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input,
-      timestamp: new Date()
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    const currentInput = input;
-    setInput('');
-    setIsLoading(true);
-
-    try {
-      // Send message to enhanced conversational AI endpoint
-      const response = await authenticatedFetch('http://localhost:8000/api/ai/conversation-enhanced', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: currentInput,
-          context: {
-            available_data_sources: selectedDataSources,
-            conversation_history: messages.slice(-5), // Last 5 messages for context
-            user_preferences: {
-              preferred_chart_types: ['bar', 'line', 'pie'],
-              detail_level: 'standard'
-            }
-          }
-        }),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
+      if (mountedRef.current) {
+        const errorMessage: Message = {
+          id: 'init_error',
           role: 'assistant',
-          content: result.response,
-          timestamp: new Date(),
-          metadata: {
-            query: result.generated_query,
-            chart: result.suggested_chart,
-            data: result.data,
-            insights: result.insights,
-            analysis: result.analysis,
-            data_sources_used: result.data_sources_used
-          }
-        };
+          content: `❌ **Connection Error**
 
-        setMessages(prev => [...prev, assistantMessage]);
-      } else {
-        throw new Error('Failed to get AI response');
-      }
-    } catch (error) {
-      console.error('Error sending message:', error);
-      
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `I apologize, but I encountered an error processing your request. 
+I'm having trouble connecting to the data sources. This could be due to:
+• Network connectivity issues
+• Server maintenance
+• Authentication problems
 
 🔄 **What you can try:**
 • Refresh the conversation context
@@ -203,17 +141,153 @@ What would you like to explore today?`,
 • "Help me get started"
 
 Would you like me to refresh the data context?`,
-        timestamp: new Date(),
-        metadata: { error: error instanceof Error ? error.message : 'Unknown error' }
-      };
+          timestamp: new Date(),
+          metadata: { error: error instanceof Error ? error.message : 'Unknown error' }
+        };
 
-      setMessages(prev => [...prev, errorMessage]);
+        setMessages([errorMessage]);
+      }
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) {
+        setIsContextLoading(false);
+      }
     }
-  };
+  }, [authenticatedFetch, messages.length]); // FIXED: Only depend on essential values
 
-  const executeQuery = async (sql: string) => {
+  // FIXED: Proper useEffect with correct dependencies and cleanup
+  useEffect(() => {
+    mountedRef.current = true;
+    contextLoadedRef.current = false;
+
+    // Initialize conversation
+    initializeConversation();
+
+    // Register with refresh manager for context updates
+    refreshManager.register('conversational-ai-context', async () => {
+      if (mountedRef.current && !isContextLoading) {
+        await initializeConversation();
+      }
+    }, {
+      interval: 120000, // 2 minutes
+      enabled: true,
+      minInterval: 30000, // Don't refresh more than once every 30 seconds
+      maxRetries: 3
+    });
+
+    return () => {
+      mountedRef.current = false;
+      contextLoadedRef.current = false;
+      refreshManager.unregister('conversational-ai-context');
+    };
+  }, []); // Empty dependency array
+
+  // FIXED: Separate useEffect for scrolling to prevent loops
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages.length]); // Only scroll when message count changes
+
+  const scrollToBottom = useCallback(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, []);
+
+  const sendMessage = useCallback(async () => {
+    if (!inputMessage.trim() || isLoading || !mountedRef.current) return;
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: inputMessage,
+      timestamp: new Date()
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInputMessage('');
+    setIsLoading(true);
+
+    try {
+      const response = await authenticatedFetch('http://localhost:8000/api/conversational-ai/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: inputMessage,
+          context: {
+            selected_data_sources: selectedDataSources,
+            conversation_history: messages.slice(-5) // Last 5 messages for context
+          }
+        }),
+      });
+
+      if (response.ok && mountedRef.current) {
+        const result = await response.json();
+        
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: result.response,
+          timestamp: new Date(),
+          metadata: {
+            data: result.data,
+            query: result.generated_sql,
+            chart_config: result.chart_config
+          }
+        };
+
+        setMessages(prev => [...prev, assistantMessage]);
+
+        // Handle special actions based on response type
+        if (result.action === 'execute_query' && result.generated_sql) {
+          await executeQuery(result.generated_sql);
+        }
+
+        if (result.action === 'create_dashboard' && result.chart_config) {
+          await createDashboard(result.chart_config);
+        }
+      } else {
+        throw new Error('Failed to get AI response');
+      }
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      
+      if (mountedRef.current) {
+        const errorMessage: Message = {
+          id: (Date.now() + 2).toString(),
+          role: 'assistant',
+          content: `❌ **I encountered an error while processing your request.**
+
+${error instanceof Error ? error.message : 'Unknown error occurred'}
+
+🔄 **What you can try:**
+• Refresh the conversation context
+• Check if your data sources are properly loaded
+• Rephrase your question
+• Try a simpler request first
+
+**Quick suggestions:**
+• "Show me my available data"
+• "Summarize my latest file" 
+• "Help me get started"
+
+Would you like me to refresh the data context?`,
+          timestamp: new Date(),
+          metadata: { error: error instanceof Error ? error.message : 'Unknown error' }
+        };
+
+        setMessages(prev => [...prev, errorMessage]);
+      }
+    } finally {
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [inputMessage, isLoading, selectedDataSources, messages, authenticatedFetch]);
+
+  const executeQuery = useCallback(async (sql: string) => {
+    if (!mountedRef.current) return;
+
     try {
       const response = await authenticatedFetch('http://localhost:8000/api/queries/execute', {
         method: 'POST',
@@ -226,7 +300,7 @@ Would you like me to refresh the data context?`,
         }),
       });
 
-      if (response.ok) {
+      if (response.ok && mountedRef.current) {
         const result = await response.json();
         
         const resultMessage: Message = {
@@ -250,9 +324,11 @@ The query has been executed and results are available in the Query Builder.`,
     } catch (error) {
       console.error('Failed to execute query:', error);
     }
-  };
+  }, [authenticatedFetch]);
 
-  const createDashboard = async (chartConfig: any) => {
+  const createDashboard = useCallback(async (chartConfig: any) => {
+    if (!mountedRef.current) return;
+
     try {
       const response = await authenticatedFetch('http://localhost:8000/api/dashboards/quick-create', {
         method: 'POST',
@@ -267,7 +343,7 @@ The query has been executed and results are available in the Query Builder.`,
         }),
       });
 
-      if (response.ok) {
+      if (response.ok && mountedRef.current) {
         const result = await response.json();
         
         const dashboardMessage: Message = {
@@ -288,27 +364,27 @@ Your dashboard is ready! You can view and customize it in the Dashboard Builder.
     } catch (error) {
       console.error('Failed to create dashboard:', error);
     }
-  };
+  }, [authenticatedFetch, selectedDataSources]);
 
-  const refreshContext = async () => {
+  const refreshContext = useCallback(async () => {
+    if (!mountedRef.current) return;
+    
     setIsContextLoading(true);
-    await initializeConversation();
-  };
+    contextLoadedRef.current = false;
+    await refreshManager.refresh('conversational-ai-context', true);
+  }, [refreshManager]);
 
-  // ✅ FIXED: Proper useEffect with correct dependencies
-  useEffect(() => {
-    initializeConversation();
-  }, [initializeConversation]);
+  const copyToClipboard = useCallback((text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      actions.addNotification({
+        type: 'success',
+        title: 'Copied',
+        message: 'Text copied to clipboard'
+      });
+    });
+  }, [actions]);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-  };
-
-  const downloadData = (data: any[], filename: string = 'ai_analysis_data.csv') => {
+  const downloadData = useCallback((data: any[] | undefined, filename: string = 'ai_analysis_data.csv') => {
     if (!data || data.length === 0) return;
 
     const headers = Object.keys(data[0]);
@@ -324,22 +400,22 @@ Your dashboard is ready! You can view and customize it in the Dashboard Builder.
     a.download = filename;
     a.click();
     window.URL.revokeObjectURL(url);
-  };
+  }, []);
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
-  };
+  }, [sendMessage]);
 
-  const toggleDataSource = (sourceId: string) => {
+  const toggleDataSource = useCallback((sourceId: string) => {
     setSelectedDataSources(prev => 
       prev.includes(sourceId) 
         ? prev.filter(id => id !== sourceId)
         : [...prev, sourceId]
     );
-  };
+  }, []);
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
@@ -360,310 +436,173 @@ Your dashboard is ready! You can view and customize it in the Dashboard Builder.
             </button>
           </div>
           
-          {context?.available_data_sources.length === 0 ? (
-            <div className="text-sm text-gray-500 dark:text-gray-400 p-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-center">
-              <Database className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-              <p>No data sources available</p>
-              <p className="text-xs mt-1">Upload files to get started</p>
+          {!context || context.available_data_sources.length === 0 ? (
+            <div className="text-center py-8">
+              <Database className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-500 dark:text-gray-400">No data sources available</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
+                Upload files to get started
+              </p>
             </div>
           ) : (
             <div className="space-y-2">
-              {context?.available_data_sources.map((source) => (
-                <div
-                  key={source.source_id}
-                  className={`p-3 border rounded-lg cursor-pointer transition-colors ${
-                    selectedDataSources.includes(source.source_id)
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                      : 'border-gray-200 dark:border-gray-600 hover:border-gray-300'
-                  }`}
-                  onClick={() => toggleDataSource(source.source_id)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                        {source.source_name}
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {source.data_type} • {source.schema?.row_count || 0} rows
-                      </p>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      {source.status === 'available' ? (
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                      ) : (
-                        <AlertCircle className="h-4 w-4 text-yellow-500" />
-                      )}
-                      {selectedDataSources.includes(source.source_id) && (
-                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                      )}
-                    </div>
+              {context.available_data_sources.map((source) => (
+                <div key={source.id} className="flex items-center space-x-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg">
+                  <input
+                    type="checkbox"
+                    checked={selectedDataSources.includes(source.id)}
+                    onChange={() => toggleDataSource(source.id)}
+                    className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <FileText className="h-5 w-5 text-gray-400" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                      {source.name}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {source.type} • {source.status}
+                    </p>
                   </div>
-                  
-                  {source.schema?.columns && (
-                    <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                      <span>Columns: </span>
-                      {source.schema.columns.slice(0, 3).map((col: any) => col.name).join(', ')}
-                      {source.schema.columns.length > 3 && ` +${source.schema.columns.length - 3} more`}
-                    </div>
-                  )}
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* Quick Actions */}
-        <div className="p-4 space-y-2">
-          <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-2">Quick Actions</h4>
-          
-          {context?.suggested_questions.slice(0, 4).map((question, index) => (
-            <button
-              key={index}
-              onClick={() => setInput(question)}
-              className="w-full text-left p-2 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded border border-gray-200 dark:border-gray-600"
-            >
-              "{question}"
-            </button>
-          ))}
-        </div>
-
-        {/* Context Info */}
-        <div className="p-4 mt-auto border-t border-gray-200 dark:border-gray-700">
-          <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
-            <div className="flex items-center justify-between">
-              <span>Active Sources:</span>
-              <span className="font-medium">{selectedDataSources.length}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>AI Status:</span>
-              <span className="flex items-center space-x-1">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                <span>Ready</span>
-              </span>
-            </div>
+        {/* Context Information */}
+        <div className="flex-1 p-4 overflow-y-auto">
+          <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">
+            Quick Actions
+          </h4>
+          <div className="space-y-2">
+            {[
+              "Show me my data summary",
+              "What are the latest trends?",
+              "Create a sales dashboard",
+              "Analyze customer behavior",
+              "Show top performing products"
+            ].map((suggestion, index) => (
+              <button
+                key={index}
+                onClick={() => setInputMessage(suggestion)}
+                className="w-full text-left p-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+              >
+                {suggestion}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Main Chat Area */}
+      {/* Chat Interface */}
       <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4">
+        {/* Chat Header */}
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg">
-                <Sparkles className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl font-semibold text-gray-900 dark:text-white">
-                  Enhanced AI Analytics
-                </h1>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Intelligent data analysis with {selectedDataSources.length} active sources
-                </p>
-              </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                AI Analytics Assistant
+              </h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {selectedDataSources.length} data source{selectedDataSources.length !== 1 ? 's' : ''} selected
+              </p>
+            </div>
+            <div className="flex items-center space-x-2">
+              {isLoading && (
+                <div className="flex items-center space-x-2 text-blue-600 dark:text-blue-400">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <span className="text-sm">Thinking...</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Messages Area */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
           {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex space-x-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              {message.role === 'assistant' && (
-                <div className="flex-shrink-0 p-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full">
-                  <Bot className="h-4 w-4 text-white" />
-                </div>
-              )}
-              
-              <div className={`flex-1 max-w-4xl ${message.role === 'user' ? 'text-right' : ''}`}>
-                <div className={`inline-block px-4 py-3 rounded-2xl ${
-                  message.role === 'user'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700'
-                }`}>
-                  <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">
-                    {message.content}
-                  </div>
-                </div>
-                
-                {/* Enhanced Metadata Display */}
-                {message.metadata && (
-                  <div className="mt-4 space-y-4">
-                    {/* Generated Query */}
-                    {message.metadata.query && (
-                      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <Code className="h-4 w-4 text-gray-500" />
-                            <h4 className="text-sm font-medium text-gray-900 dark:text-white">
-                              Generated SQL Query
-                            </h4>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <button
-                              onClick={() => copyToClipboard(message.metadata!.query!)}
-                              className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                              title="Copy query"
-                            >
-                              <Copy className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => executeQuery(message.metadata!.query!)}
-                              className="p-1 text-green-600 hover:text-green-700 dark:text-green-400"
-                              title="Execute in Query Builder"
-                            >
-                              <Play className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                        <div className="p-4">
-                          <pre className="text-sm bg-gray-100 dark:bg-gray-900 p-3 rounded overflow-x-auto">
-                            <code>{message.metadata.query}</code>
-                          </pre>
-                        </div>
+            <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-3xl ${message.role === 'user' ? 'order-2' : 'order-1'}`}>
+                <div className="flex items-start space-x-3">
+                  {message.role === 'assistant' && (
+                    <div className="flex-shrink-0">
+                      <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
+                        <Bot className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                       </div>
-                    )}
-
-                    {/* Chart Suggestion */}
-                    {message.metadata.chart && (
-                      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700 overflow-hidden">
-                        <div className="px-4 py-3 border-b border-blue-200 dark:border-blue-700 flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <BarChart3 className="h-4 w-4 text-blue-600" />
-                            <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                              Suggested Visualization
-                            </h4>
-                          </div>
+                    </div>
+                  )}
+                  
+                  <div className={`flex-1 ${message.role === 'user' ? 'order-1' : 'order-2'}`}>
+                    <div className={`p-4 rounded-lg ${
+                      message.role === 'user'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700'
+                    }`}>
+                      <div className="whitespace-pre-wrap">
+                        {message.content}
+                      </div>
+                      
+                      {/* Message Actions */}
+                      {message.role === 'assistant' && (
+                        <div className="flex items-center space-x-2 mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
                           <button
-                            onClick={() => createDashboard(message.metadata!.chart)}
-                            className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                            onClick={() => copyToClipboard(message.content)}
+                            className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                            title="Copy message"
                           >
-                            Create Dashboard
+                            <Copy className="h-4 w-4" />
                           </button>
+                          
+                          {message.metadata?.data? (
+                            <button
+                              onClick={() => downloadData(message.metadata?.data, `ai_data_${message.id}.csv`)}
+                              className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                              title="Download data"
+                            >
+                              <Download className="h-4 w-4" />
+                            </button>
+                          ):""}
+                          {/* {message.metadata?.data && (
+                            <button
+                              onClick={() => downloadData(message?.metadata?.data, `ai_data_${message.id}.csv`)}
+                              className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                              title="Download data"
+                            >
+                              <Download className="h-4 w-4" />
+                            </button>
+                          )} */}
+                          
+                          <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">
+                            {message.timestamp.toLocaleTimeString()}
+                          </span>
                         </div>
-                        <div className="p-4">
-                          <div className="text-sm space-y-2">
-                            <p><strong>Chart Type:</strong> {message.metadata.chart.type}</p>
-                            <p><strong>Title:</strong> {message.metadata.chart.title}</p>
-                            {message.metadata.chart.x_axis && (
-                              <p><strong>X-Axis:</strong> {message.metadata.chart.x_axis}</p>
-                            )}
-                            {message.metadata.chart.y_axis && (
-                              <p><strong>Y-Axis:</strong> {message.metadata.chart.y_axis}</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Data Results */}
-                    {message.metadata.data && message.metadata.data.length > 0 && (
-                      <div className="bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-700 overflow-hidden">
-                        <div className="px-4 py-3 border-b border-green-200 dark:border-green-700 flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <FileText className="h-4 w-4 text-green-600" />
-                            <h4 className="text-sm font-medium text-green-900 dark:text-green-100">
-                              Data Results ({message.metadata.data.length} rows)
-                            </h4>
-                          </div>
-                          <button
-                            onClick={() => downloadData(message.metadata!.data!, `ai_results_${Date.now()}.csv`)}
-                            className="flex items-center space-x-1 px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
-                          >
-                            <Download className="h-3 w-3" />
-                            <span>Download CSV</span>
-                          </button>
-                        </div>
-                        <div className="p-4 overflow-x-auto">
-                          <table className="min-w-full text-xs">
-                            <thead>
-                              <tr className="border-b">
-                                {Object.keys(message.metadata.data[0]).map((header) => (
-                                  <th key={header} className="text-left p-2 font-medium">
-                                    {header}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {message.metadata.data.slice(0, 5).map((row, index) => (
-                                <tr key={index} className="border-b">
-                                  {Object.values(row).map((value, cellIndex) => (
-                                    <td key={cellIndex} className="p-2">
-                                      {String(value)}
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          {message.metadata.data.length > 5 && (
-                            <p className="text-xs text-gray-500 mt-2">
-                              ... and {message.metadata.data.length - 5} more rows
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Insights */}
-                    {message.metadata.insights && message.metadata.insights.length > 0 && (
-                      <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-700 p-4">
-                        <div className="flex items-center space-x-2 mb-3">
-                          <TrendingUp className="h-4 w-4 text-purple-600" />
-                          <h4 className="text-sm font-medium text-purple-900 dark:text-purple-100">
-                            AI Insights
-                          </h4>
-                        </div>
-                        <ul className="text-sm space-y-1 text-purple-800 dark:text-purple-200">
-                          {message.metadata.insights.map((insight, index) => (
-                            <li key={index} className="flex items-start space-x-2">
-                              <span className="text-purple-500 mt-1">•</span>
-                              <span>{insight}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Data Sources Used */}
-                    {message.metadata.data_sources_used && message.metadata.data_sources_used.length > 0 && (
-                      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center space-x-2">
-                        <Database className="h-3 w-3" />
-                        <span>
-                          Used data sources: {message.metadata.data_sources_used.join(', ')}
-                        </span>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
-                )}
+                  
+                  {message.role === 'user' && (
+                    <div className="flex-shrink-0 order-2">
+                      <div className="w-8 h-8 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center">
+                        <User className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-              
-              {message.role === 'user' && (
-                <div className="flex-shrink-0 p-2 bg-blue-500 rounded-full">
-                  <User className="h-4 w-4 text-white" />
-                </div>
-              )}
             </div>
           ))}
           
           {isLoading && (
-            <div className="flex space-x-3">
-              <div className="flex-shrink-0 p-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full">
-                <Bot className="h-4 w-4 text-white" />
-              </div>
-              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl px-4 py-3">
-                <div className="flex items-center space-x-2">
-                  <div className="flex space-x-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            <div className="flex justify-start">
+              <div className="flex items-start space-x-3">
+                <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
+                  <Bot className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <div className="flex items-center space-x-2">
+                    <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
+                    <span className="text-gray-600 dark:text-gray-400">AI is thinking...</span>
                   </div>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">AI is analyzing...</span>
                 </div>
               </div>
             </div>
@@ -673,38 +612,39 @@ Your dashboard is ready! You can view and customize it in the Dashboard Builder.
         </div>
 
         {/* Input Area */}
-        <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-4">
-          <div className="flex space-x-4">
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div className="flex items-end space-x-3">
             <div className="flex-1">
               <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
+                ref={inputRef}
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="Ask me anything about your data... (Shift+Enter for new line)"
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white resize-none"
+                placeholder="Ask me anything about your data..."
+                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
                 rows={3}
                 disabled={isLoading}
               />
             </div>
             <button
               onClick={sendMessage}
-              disabled={!input.trim() || isLoading}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              disabled={!inputMessage.trim() || isLoading}
+              className="p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Send className="h-4 w-4" />
-              <span>Send</span>
+              <Send className="h-5 w-5" />
             </button>
           </div>
           
-          {selectedDataSources.length > 0 && (
-            <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-              Active sources: {selectedDataSources.length} • AI-powered analysis enabled
-            </div>
-          )}
+          <div className="flex items-center justify-between mt-2 text-xs text-gray-500 dark:text-gray-400">
+            <span>Press Enter to send, Shift+Enter for new line</span>
+            {selectedDataSources.length > 0 && (
+              <span>{selectedDataSources.length} data source{selectedDataSources.length !== 1 ? 's' : ''} active</span>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-export default EnhancedConversationalAI;
+export default ConversationalAI;  
