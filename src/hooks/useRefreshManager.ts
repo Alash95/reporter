@@ -22,12 +22,12 @@ interface RegisteredRefresh {
   lastRefresh: number;
   isRunning: boolean;
   retryCount: number;
-  interval?: NodeJS.Timeout;
+  interval?: number;
 }
 
 class RefreshManagerSingleton {
   private refreshes: Map<string, RegisteredRefresh> = new Map();
-  private globalInterval: NodeJS.Timeout | null = null;
+  private globalInterval: number | null = null;
   private readonly GLOBAL_INTERVAL = 5000; // 5 seconds
   
   constructor() {
@@ -35,13 +35,14 @@ class RefreshManagerSingleton {
   }
 
   private startGlobalInterval() {
-    if (this.globalInterval) {
+    if (this.globalInterval !== null) {
       clearInterval(this.globalInterval);
+      this.globalInterval = null;
     }
     
     this.globalInterval = setInterval(() => {
       this.processRefreshes();
-    }, this.GLOBAL_INTERVAL);
+    }, this.GLOBAL_INTERVAL) as number;
   }
 
   private async processRefreshes() {
@@ -99,8 +100,9 @@ class RefreshManagerSingleton {
 
   unregister(key: string) {
     const refresh = this.refreshes.get(key);
-    if (refresh?.interval) {
+    if (refresh?.interval !== undefined && refresh.interval !== null) {
       clearInterval(refresh.interval);
+      refresh.interval = undefined;
     }
     this.refreshes.delete(key);
     console.log(`❌ Unregistered refresh: ${key}`);
@@ -141,12 +143,13 @@ class RefreshManagerSingleton {
   destroy() {
     // Clear all intervals
     for (const refresh of this.refreshes.values()) {
-      if (refresh.interval) {
+      if (refresh.interval !== undefined && refresh.interval !== null) {
         clearInterval(refresh.interval);
+        refresh.interval = undefined;
       }
     }
     
-    if (this.globalInterval) {
+    if (this.globalInterval !== null) {
       clearInterval(this.globalInterval);
       this.globalInterval = null;
     }
