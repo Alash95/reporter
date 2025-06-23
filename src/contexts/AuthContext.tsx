@@ -97,7 +97,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000') + '/api';
+  // Use the same protocol as the frontend to avoid mixed content issues
+  const getApiBaseUrl = () => {
+    if (import.meta.env.VITE_API_URL) {
+      return import.meta.env.VITE_API_URL + '/api';
+    }
+    
+    // Dynamically use the same protocol as the frontend
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    const port = hostname === 'localhost' ? '8000' : window.location.port;
+    
+    return `${protocol}//${hostname}:${port}/api`;
+  };
+
+  const API_BASE_URL = getApiBaseUrl();
 
   useEffect(() => {
     // Check for stored token on app load
